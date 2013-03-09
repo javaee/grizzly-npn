@@ -7,14 +7,37 @@
         <artifactId>jvnet-parent</artifactId>
         <version>3</version>
     </parent>
-    <modelVersion>4.0.0</modelVersion>
 
+    <modelVersion>4.0.0</modelVersion>
     <groupId>org.glassfish.grizzly</groupId>
     <artifactId>grizzly-npn</artifactId>
-    <packaging>bundle</packaging>
+    <packaging>pom</packaging>
     <version>1.0-SNAPSHOT</version>
+
     <build>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>1.2</version>
+                <executions>
+                    <execution>
+                        <id>enforce-java</id>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <requireProperty>
+                                    <property>java.vm.name</property>
+                                    <message>You must use Open JDK 7 to build this module.</message>
+                                    <regex>^(OpenJDK).*</regex>
+                                </requireProperty>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <inherited>true</inherited>
                 <artifactId>maven-compiler-plugin</artifactId>
@@ -23,35 +46,12 @@
                     <target>1.7</target>
                 </configuration>
             </plugin>
-            <plugin>
-                <groupId>org.apache.felix</groupId>
-                <artifactId>maven-bundle-plugin</artifactId>
-                <version>2.3.7</version>
-                <extensions>true</extensions>
-                <configuration>
-                    <instructions>
-                        <Export-Package>
-                            org.glassfish.grizzly.npn,
-                            sun.security.ssl
-                        </Export-Package>
-                        <Fragment-Host>system.bundle; extension:=framework
-                        </Fragment-Host>
-                    </instructions>
-                </configuration>
-                <dependencies>
-                    <dependency>
-                        <groupId>org.osgi</groupId>
-                        <artifactId>org.osgi.core</artifactId>
-                        <version>4.2.0</version>
-                    </dependency>
-                    <dependency>
-                        <groupId>org.osgi</groupId>
-                        <artifactId>org.osgi.compendium</artifactId>
-                        <version>4.2.0</version>
-                    </dependency>
-                </dependencies>
-            </plugin>
         </plugins>
     </build>
+
+    <modules>
+        <module>api</module>
+        <module>bootstrap</module>
+    </modules>
 
 </project>

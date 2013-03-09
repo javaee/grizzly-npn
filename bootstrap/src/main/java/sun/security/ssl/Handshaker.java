@@ -45,8 +45,30 @@ import sun.misc.HexDumpEncoder;
 import sun.security.internal.spec.*;
 import sun.security.internal.interfaces.TlsMasterSecret;
 
+import sun.security.ssl.CipherBox;
+import sun.security.ssl.CipherSuite;
+import sun.security.ssl.CipherSuiteList;
+import sun.security.ssl.Debug;
+import sun.security.ssl.EngineOutputRecord;
+import sun.security.ssl.HandshakeHash;
+import sun.security.ssl.HandshakeInStream;
 import sun.security.ssl.HandshakeMessage.*;
 import sun.security.ssl.CipherSuite.*;
+import sun.security.ssl.HandshakeOutStream;
+import sun.security.ssl.InputRecord;
+import sun.security.ssl.JsseJce;
+import sun.security.ssl.MAC;
+import sun.security.ssl.OutputRecord;
+import sun.security.ssl.ProtocolList;
+import sun.security.ssl.ProtocolVersion;
+import sun.security.ssl.RSAClientKeyExchange;
+import sun.security.ssl.RandomCookie;
+import sun.security.ssl.Record;
+import sun.security.ssl.SSLAlgorithmConstraints;
+import sun.security.ssl.SSLContextImpl;
+import sun.security.ssl.SSLSessionImpl;
+import sun.security.ssl.SSLSocketImpl;
+import sun.security.ssl.SignatureAndHashAlgorithm;
 
 import static sun.security.ssl.CipherSuite.PRF.*;
 
@@ -76,10 +98,10 @@ abstract class Handshaker {
     boolean                     isInitialHandshake;
 
     // List of enabled protocols
-    private ProtocolList        enabledProtocols;
+    private ProtocolList enabledProtocols;
 
     // List of enabled CipherSuites
-    private CipherSuiteList     enabledCipherSuites;
+    private CipherSuiteList enabledCipherSuites;
 
     // The endpoint identification protocol
     String              identificationProtocol;
@@ -115,19 +137,19 @@ abstract class Handshaker {
     private boolean             isClient;
     private boolean             needCertVerify;
 
-    SSLSocketImpl               conn = null;
+    SSLSocketImpl conn = null;
     SSLEngineImpl               engine = null;
 
-    HandshakeHash               handshakeHash;
-    HandshakeInStream           input;
-    HandshakeOutStream          output;
+    HandshakeHash handshakeHash;
+    HandshakeInStream input;
+    HandshakeOutStream output;
     int                         state;
-    SSLContextImpl              sslContext;
-    RandomCookie                clnt_random, svr_random;
-    SSLSessionImpl              session;
+    SSLContextImpl sslContext;
+    RandomCookie clnt_random, svr_random;
+    SSLSessionImpl session;
 
     // current CipherSuite. Never null, initially SSL_NULL_WITH_NULL_NULL
-    CipherSuite         cipherSuite;
+    CipherSuite cipherSuite;
 
     // current key exchange. Never null, initially K_NULL
     KeyExchange         keyExchange;
@@ -940,7 +962,7 @@ abstract class Handshaker {
      * Sends a change cipher spec message and updates the write side
      * cipher state so that future messages use the just-negotiated spec.
      */
-    void sendChangeCipherSpec(Finished mesg, boolean lastMessage)
+    void sendChangeCipherSpec(HandshakeMessage.Finished mesg, boolean lastMessage)
             throws IOException {
 
         output.flush(); // i.e. handshake data
@@ -1395,9 +1417,9 @@ abstract class Handshaker {
     }
 
     // BEGIN GRIZZLY NPN
-    private void sendNPMessageIfNecessary(Finished mesg) throws IOException {
+    private void sendNPMessageIfNecessary(HandshakeMessage.Finished mesg) throws IOException {
         if (selectedProtocol != null && isInitialHandshake && (this instanceof ClientHandshaker)) {
-            NextProtocol nextProtocol = NextProtocol.builder().protocol(selectedProtocol).build();
+            HandshakeMessage.NextProtocol nextProtocol = HandshakeMessage.NextProtocol.builder().protocol(selectedProtocol).build();
             nextProtocol.write(output);
             // flushing causes the handshakeHash to be updated ...
             output.flush();
@@ -1414,7 +1436,7 @@ abstract class Handshaker {
             // NextProtocol message.
             // NOTE:  Finished.getFinished() was private, it was changed
             //        to be package private.
-            mesg.verifyData = mesg.getFinished(handshakeHash, Finished.CLIENT, session.getMasterSecret());
+            mesg.verifyData = mesg.getFinished(handshakeHash, HandshakeMessage.Finished.CLIENT, session.getMasterSecret());
         }
     }
     // END GRIZZLY NPN

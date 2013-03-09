@@ -25,6 +25,13 @@
 
 package sun.security.ssl;
 
+import sun.security.ssl.Debug;
+import sun.security.ssl.HandshakeInStream;
+import sun.security.ssl.HandshakeOutStream;
+import sun.security.ssl.JsseJce;
+import sun.security.ssl.SignatureAndHashAlgorithm;
+import sun.security.ssl.SunJSSE;
+
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;

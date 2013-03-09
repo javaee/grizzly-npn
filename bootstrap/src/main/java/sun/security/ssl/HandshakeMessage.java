@@ -45,7 +45,22 @@ import javax.crypto.SecretKey;
 import javax.net.ssl.*;
 
 import sun.security.internal.spec.TlsPrfParameterSpec;
+import sun.security.ssl.CipherSuite;
 import sun.security.ssl.CipherSuite.*;
+import sun.security.ssl.CipherSuiteList;
+import sun.security.ssl.DHCrypt;
+import sun.security.ssl.Debug;
+import sun.security.ssl.ECDHCrypt;
+import sun.security.ssl.HandshakeHash;
+import sun.security.ssl.HandshakeInStream;
+import sun.security.ssl.HandshakeOutStream;
+import sun.security.ssl.JsseJce;
+import sun.security.ssl.ProtocolVersion;
+import sun.security.ssl.RSASignature;
+import sun.security.ssl.RandomCookie;
+import sun.security.ssl.SessionId;
+import sun.security.ssl.SignatureAndHashAlgorithm;
+
 import static sun.security.ssl.CipherSuite.PRF.*;
 
 /**
@@ -322,10 +337,10 @@ static final class HelloRequest extends HandshakeMessage {
  */
 static final class ClientHello extends HandshakeMessage {
 
-    ProtocolVersion     protocolVersion;
-    RandomCookie        clnt_random;
-    SessionId           sessionId;
-    private CipherSuiteList    cipherSuites;
+    ProtocolVersion protocolVersion;
+    RandomCookie clnt_random;
+    SessionId sessionId;
+    private CipherSuiteList cipherSuites;
     byte[]              compression_methods;
 
     HelloExtensions extensions = new HelloExtensions();
@@ -464,7 +479,7 @@ class ServerHello extends HandshakeMessage
     ProtocolVersion     protocolVersion;
     RandomCookie        svr_random;
     SessionId           sessionId;
-    CipherSuite         cipherSuite;
+    CipherSuite cipherSuite;
     byte                compression_method;
     HelloExtensions extensions = new HelloExtensions();
 

@@ -25,6 +25,9 @@
 
 package sun.security.ssl;
 
+import sun.security.ssl.*;
+import sun.security.ssl.ServerHandshaker;
+
 import java.io.*;
 import java.nio.*;
 import java.security.*;
@@ -179,14 +182,14 @@ final public class SSLEngineImpl extends SSLEngine {
      */
     private boolean             inboundDone = false;
 
-    EngineWriter                writer;
+    EngineWriter writer;
 
     /*
      * The authentication context holds all information used to establish
      * who this end of the connection is (certificate chains, private keys,
      * etc) and who is trusted (e.g. as CAs or websites).
      */
-    private SSLContextImpl      sslContext;
+    private SSLContextImpl sslContext;
 
     /*
      * This connection is one of (potentially) many associated with
@@ -197,8 +200,8 @@ final public class SSLEngineImpl extends SSLEngine {
      * is associated with a session at the same time.  (TLS/IETF may
      * change that to add client authentication w/o new key exchg.)
      */
-    private Handshaker                  handshaker;
-    private SSLSessionImpl              sess;
+    private Handshaker handshaker;
+    private SSLSessionImpl sess;
     private volatile SSLSessionImpl     handshakeSession;
 
 
@@ -240,12 +243,12 @@ final public class SSLEngineImpl extends SSLEngine {
      */
     private byte                        doClientAuth;
     private boolean                     enableSessionCreation = true;
-    EngineInputRecord                   inputRecord;
-    EngineOutputRecord                  outputRecord;
+    EngineInputRecord inputRecord;
+    EngineOutputRecord outputRecord;
     private AccessControlContext        acc;
 
     // The cipher suites enabled for use on this connection.
-    private CipherSuiteList             enabledCipherSuites;
+    private CipherSuiteList enabledCipherSuites;
 
     // the endpoint identification protocol
     private String                      identificationProtocol = null;
@@ -264,18 +267,18 @@ final public class SSLEngineImpl extends SSLEngine {
      * set will result in an SSL v2 Hello being sent with SSL (version 3.0)
      * or TLS (version 3.1, 3.2, etc.) version info.
      */
-    private ProtocolList        enabledProtocols;
+    private ProtocolList enabledProtocols;
 
     /*
      * The SSL version associated with this connection.
      */
-    private ProtocolVersion     protocolVersion = ProtocolVersion.DEFAULT;
+    private ProtocolVersion protocolVersion = ProtocolVersion.DEFAULT;
 
     /*
      * Crypto state that's reinitialized when the session changes.
      */
-    private MAC                 readMAC, writeMAC;
-    private CipherBox           readCipher, writeCipher;
+    private MAC readMAC, writeMAC;
+    private CipherBox readCipher, writeCipher;
     // NOTE: compression state would be saved here
 
     /*

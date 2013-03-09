@@ -46,10 +46,17 @@ import javax.security.auth.Subject;
 
 import org.glassfish.grizzly.npn.ClientSideNegotiator;
 import org.glassfish.grizzly.npn.NegotiationSupport;
+import sun.security.ssl.*;
+import sun.security.ssl.ExtensionType;
+import sun.security.ssl.HandshakeMessage;
 import sun.security.ssl.HandshakeMessage.*;
 import static sun.security.ssl.CipherSuite.KeyExchange.*;
 
 import sun.net.util.IPAddressUtil;
+import sun.security.ssl.HelloExtension;
+import sun.security.ssl.RenegotiationInfoExtension;
+import sun.security.ssl.SSLEngineImpl;
+import sun.security.ssl.SupportedEllipticCurvesExtension;
 
 /**
  * ClientHandshaker does the protocol handshaking from the point
@@ -748,7 +755,7 @@ final class ClientHandshaker extends Handshaker {
                             ((ECPublicKey)publicKey).getParams();
                         int index =
                             SupportedEllipticCurvesExtension.getCurveIndex(
-                                params);
+                                    params);
                         if (!SupportedEllipticCurvesExtension.isSupported(
                                 index)) {
                             publicKey = null;

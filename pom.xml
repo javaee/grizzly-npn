@@ -52,6 +52,7 @@
     <modules>
         <module>api</module>
         <module>bootstrap</module>
+        <module>osgi</module>
     </modules>
 
 </project>

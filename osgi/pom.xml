@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <artifactId>grizzly-npn</artifactId>
+        <groupId>org.glassfish.grizzly</groupId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+
+    <modelVersion>4.0.0</modelVersion>
+    <artifactId>grizzly-npn-osgi</artifactId>
+
+    <description>
+        This empty module allows the bootclasspath classes in org.glassfish.grizzly.npn
+        to be available via the OSGi classloading mechanisms.
+
+        Using GlassFish as an example:
+          - grizzly-npn-bootstrap.jar goes into the domain's bootclasspath (-Xbootclasspath/p:[PATH TO THE JAR])
+          - grizzly-npn-osgi and grizzly-spdy JARs go into the $GF_HOME/modules directory.
+    </description>
+
+    <build>
+        <plugins>
+            <plugin>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>2.3.2</version>
+                <configuration>
+                    <forceCreation>true</forceCreation>
+                    <archive>
+                        <manifestFile>
+                            ${project.build.outputDirectory}/META-INF/MANIFEST.MF
+                        </manifestFile>
+                        <manifestEntries>
+                            <Export-Package>
+org.glassfish.grizzly.npn;version=${project.version},
+ sun.security.ssl;version=${project.version}
+                            </Export-Package>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.felix</groupId>
+                <artifactId>maven-bundle-plugin</artifactId>
+                <version>2.3.6</version>
+                <executions>
+                    <execution>
+                        <id>bundle-manifest</id>
+                        <goals>
+                            <goal>manifest</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <instructions>
+                        <Fragment-Host>
+                            system.bundle;extension:=framework
+                        </Fragment-Host>
+                    </instructions>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

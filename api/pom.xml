@@ -20,7 +20,7 @@
                 <configuration>
                     <instructions>
                         <Export-Package>
-                            org.glassfish.grizzly.npn,
+                            org.glassfish.grizzly.npn;version=${project.version}
                         </Export-Package>
                     </instructions>
                 </configuration>

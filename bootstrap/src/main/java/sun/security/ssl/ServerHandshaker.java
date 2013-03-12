@@ -281,6 +281,9 @@ final class ServerHandshaker extends Handshaker {
                 serverSideNegotiator.onNoDeal(engine);
             } else {
                 String selectedProtocol = new String(nextProtocol.protocolBytes, ISO_8859_1);
+                if (debug != null && Debug.isOn("handshake")) {
+                    System.out.println("NPN selected protocol is: " + selectedProtocol);
+                }
                 serverSideNegotiator.onSuccess(engine, selectedProtocol);
             }
         }

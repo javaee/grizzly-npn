@@ -260,7 +260,10 @@ final class ServerHandshaker extends Handshaker {
         // code didn't already do so
         //
         if (state < type) {
-            if(type == HandshakeMessage.ht_certificate_verify) {
+            if(type == HandshakeMessage.ht_certificate_verify
+                    // BEGIN GRIZZLY NPN
+                    || type == HandshakeMessage.ht_next_protocol) {
+                    // END GRIZZLY NPN
                 state = type + 2;    // an annoying special case
             } else {
                 state = type;

@@ -259,11 +259,11 @@ final class ServerHandshaker extends Handshaker {
         // Move state machine forward if the message handling
         // code didn't already do so
         //
-        if (state < type) {
-            if(type == HandshakeMessage.ht_certificate_verify
-                    // BEGIN GRIZZLY NPN
-                    || type == HandshakeMessage.ht_next_protocol) {
-                    // END GRIZZLY NPN
+        if (state < type
+                // BEGIN GRIZZLY NPN
+                && type != HandshakeMessage.ht_next_protocol) {
+                // END GRIZZLY NPN
+            if(type == HandshakeMessage.ht_certificate_verify) {
                 state = type + 2;    // an annoying special case
             } else {
                 state = type;

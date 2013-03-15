@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2011, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2012, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -45,30 +45,8 @@ import sun.misc.HexDumpEncoder;
 import sun.security.internal.spec.*;
 import sun.security.internal.interfaces.TlsMasterSecret;
 
-import sun.security.ssl.CipherBox;
-import sun.security.ssl.CipherSuite;
-import sun.security.ssl.CipherSuiteList;
-import sun.security.ssl.Debug;
-import sun.security.ssl.EngineOutputRecord;
-import sun.security.ssl.HandshakeHash;
-import sun.security.ssl.HandshakeInStream;
 import sun.security.ssl.HandshakeMessage.*;
 import sun.security.ssl.CipherSuite.*;
-import sun.security.ssl.HandshakeOutStream;
-import sun.security.ssl.InputRecord;
-import sun.security.ssl.JsseJce;
-import sun.security.ssl.MAC;
-import sun.security.ssl.OutputRecord;
-import sun.security.ssl.ProtocolList;
-import sun.security.ssl.ProtocolVersion;
-import sun.security.ssl.RSAClientKeyExchange;
-import sun.security.ssl.RandomCookie;
-import sun.security.ssl.Record;
-import sun.security.ssl.SSLAlgorithmConstraints;
-import sun.security.ssl.SSLContextImpl;
-import sun.security.ssl.SSLSessionImpl;
-import sun.security.ssl.SSLSocketImpl;
-import sun.security.ssl.SignatureAndHashAlgorithm;
 
 import static sun.security.ssl.CipherSuite.PRF.*;
 
@@ -98,10 +76,10 @@ abstract class Handshaker {
     boolean                     isInitialHandshake;
 
     // List of enabled protocols
-    private ProtocolList enabledProtocols;
+    private ProtocolList        enabledProtocols;
 
     // List of enabled CipherSuites
-    private CipherSuiteList enabledCipherSuites;
+    private CipherSuiteList     enabledCipherSuites;
 
     // The endpoint identification protocol
     String              identificationProtocol;
@@ -137,19 +115,19 @@ abstract class Handshaker {
     private boolean             isClient;
     private boolean             needCertVerify;
 
-    SSLSocketImpl conn = null;
+    SSLSocketImpl               conn = null;
     SSLEngineImpl               engine = null;
 
-    HandshakeHash handshakeHash;
-    HandshakeInStream input;
-    HandshakeOutStream output;
+    HandshakeHash               handshakeHash;
+    HandshakeInStream           input;
+    HandshakeOutStream          output;
     int                         state;
-    SSLContextImpl sslContext;
-    RandomCookie clnt_random, svr_random;
-    SSLSessionImpl session;
+    SSLContextImpl              sslContext;
+    RandomCookie                clnt_random, svr_random;
+    SSLSessionImpl              session;
 
     // current CipherSuite. Never null, initially SSL_NULL_WITH_NULL_NULL
-    CipherSuite cipherSuite;
+    CipherSuite         cipherSuite;
 
     // current key exchange. Never null, initially K_NULL
     KeyExchange         keyExchange;
@@ -962,7 +940,7 @@ abstract class Handshaker {
      * Sends a change cipher spec message and updates the write side
      * cipher state so that future messages use the just-negotiated spec.
      */
-    void sendChangeCipherSpec(HandshakeMessage.Finished mesg, boolean lastMessage)
+    void sendChangeCipherSpec(Finished mesg, boolean lastMessage)
             throws IOException {
 
         output.flush(); // i.e. handshake data
@@ -1004,14 +982,16 @@ abstract class Handshaker {
             synchronized (engine.writeLock) {
                 engine.writeRecord((EngineOutputRecord)r);
                 engine.changeWriteCiphers();
-
+   
                 // BEGIN GRIZZLY NPN
                 sendNPMessageIfNecessary(mesg);
                 // END GRIZZLY NPN
+
                 if (debug != null && Debug.isOn("handshake")) {
                     mesg.print(System.out);
                 }
                 mesg.write(output);
+
                 if (lastMessage) {
                     output.setFinishedMsg();
                 }
@@ -1019,8 +999,6 @@ abstract class Handshaker {
             }
         }
     }
-
-
 
     /*
      * Single access point to key calculation logic.  Given the
@@ -1095,7 +1073,6 @@ abstract class Handshaker {
             if (debug != null && Debug.isOn("handshake")) {
                 System.out.println("RSA master secret generation error:");
                 e.printStackTrace(System.out);
-                System.out.println("Generating new random premaster secret");
             }
 
             if (requestedVersion != null) {
@@ -1162,7 +1139,6 @@ abstract class Handshaker {
             System.out.println("RSA PreMasterSecret version error: expected"
                 + protocolVersion + " or " + requestedVersion + ", decrypted: "
                 + premasterVersion);
-            System.out.println("Generating new random premaster secret");
         }
         preMasterSecret =
             RSAClientKeyExchange.generateDummySecret(requestedVersion);

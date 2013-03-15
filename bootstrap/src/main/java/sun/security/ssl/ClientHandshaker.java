@@ -46,17 +46,11 @@ import javax.security.auth.Subject;
 
 import org.glassfish.grizzly.npn.ClientSideNegotiator;
 import org.glassfish.grizzly.npn.NegotiationSupport;
-import sun.security.ssl.*;
-import sun.security.ssl.ExtensionType;
-import sun.security.ssl.HandshakeMessage;
 import sun.security.ssl.HandshakeMessage.*;
+import sun.security.ssl.CipherSuite.*;
 import static sun.security.ssl.CipherSuite.KeyExchange.*;
 
 import sun.net.util.IPAddressUtil;
-import sun.security.ssl.HelloExtension;
-import sun.security.ssl.RenegotiationInfoExtension;
-import sun.security.ssl.SSLEngineImpl;
-import sun.security.ssl.SupportedEllipticCurvesExtension;
 
 /**
  * ClientHandshaker does the protocol handshaking from the point
@@ -136,9 +130,8 @@ final class ClientHandshaker extends Handshaker {
      * in the constructor.
      */
     void processMessage(byte type, int messageLen) throws IOException {
-        if (state > type
-                && (type != HandshakeMessage.ht_hello_request
-                    && state != HandshakeMessage.ht_client_hello)) {
+        if (state >= type
+                && (type != HandshakeMessage.ht_hello_request)) {
             throw new SSLProtocolException(
                     "Handshake message sequence violation, " + type);
         }
@@ -201,7 +194,7 @@ final class ClientHandshaker extends Handshaker {
                 }
                 break;
             case K_DH_ANON:
-                this.serverKeyExchange(new DH_ServerKeyExchange(
+                    this.serverKeyExchange(new DH_ServerKeyExchange(
                                                 input, protocolVersion));
                 break;
             case K_DHE_DSS:
@@ -755,7 +748,7 @@ final class ClientHandshaker extends Handshaker {
                             ((ECPublicKey)publicKey).getParams();
                         int index =
                             SupportedEllipticCurvesExtension.getCurveIndex(
-                                    params);
+                                params);
                         if (!SupportedEllipticCurvesExtension.isSupported(
                                 index)) {
                             publicKey = null;
@@ -958,7 +951,7 @@ final class ClientHandshaker extends Handshaker {
         case K_DHE_RSA:
         case K_DHE_DSS:
         case K_DH_ANON:
-            preMasterSecret = dh.getAgreedSecret(serverDH);
+            preMasterSecret = dh.getAgreedSecret(serverDH, true);
             break;
         case K_ECDHE_RSA:
         case K_ECDHE_ECDSA:
@@ -1108,7 +1101,6 @@ final class ClientHandshaker extends Handshaker {
      */
     private void sendChangeCipherAndFinish(boolean finishedTag)
             throws IOException {
-
         Finished mesg = new Finished(protocolVersion, handshakeHash,
             Finished.CLIENT, session.getMasterSecret(), cipherSuite);
 

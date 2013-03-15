@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2013, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -25,11 +25,10 @@
 
 package sun.security.ssl;
 
-import sun.security.ssl.*;
-import sun.security.ssl.ServerHandshaker;
-
 import java.io.*;
 import java.nio.*;
+import java.nio.ReadOnlyBufferException;
+import java.util.LinkedList;
 import java.security.*;
 
 import javax.crypto.BadPaddingException;
@@ -37,6 +36,7 @@ import javax.crypto.BadPaddingException;
 import javax.net.ssl.*;
 import javax.net.ssl.SSLEngineResult.*;
 
+import com.sun.net.ssl.internal.ssl.X509ExtendedTrustManager;
 
 /**
  * Implementation of an non-blocking SSLEngine.
@@ -182,14 +182,14 @@ final public class SSLEngineImpl extends SSLEngine {
      */
     private boolean             inboundDone = false;
 
-    EngineWriter writer;
+    EngineWriter                writer;
 
     /*
      * The authentication context holds all information used to establish
      * who this end of the connection is (certificate chains, private keys,
      * etc) and who is trusted (e.g. as CAs or websites).
      */
-    private SSLContextImpl sslContext;
+    private SSLContextImpl      sslContext;
 
     /*
      * This connection is one of (potentially) many associated with
@@ -200,8 +200,8 @@ final public class SSLEngineImpl extends SSLEngine {
      * is associated with a session at the same time.  (TLS/IETF may
      * change that to add client authentication w/o new key exchg.)
      */
-    private Handshaker handshaker;
-    private SSLSessionImpl sess;
+    private Handshaker                  handshaker;
+    private SSLSessionImpl              sess;
     private volatile SSLSessionImpl     handshakeSession;
 
 
@@ -243,12 +243,12 @@ final public class SSLEngineImpl extends SSLEngine {
      */
     private byte                        doClientAuth;
     private boolean                     enableSessionCreation = true;
-    EngineInputRecord inputRecord;
-    EngineOutputRecord outputRecord;
+    EngineInputRecord                   inputRecord;
+    EngineOutputRecord                  outputRecord;
     private AccessControlContext        acc;
 
     // The cipher suites enabled for use on this connection.
-    private CipherSuiteList enabledCipherSuites;
+    private CipherSuiteList             enabledCipherSuites;
 
     // the endpoint identification protocol
     private String                      identificationProtocol = null;
@@ -267,18 +267,18 @@ final public class SSLEngineImpl extends SSLEngine {
      * set will result in an SSL v2 Hello being sent with SSL (version 3.0)
      * or TLS (version 3.1, 3.2, etc.) version info.
      */
-    private ProtocolList enabledProtocols;
+    private ProtocolList        enabledProtocols;
 
     /*
      * The SSL version associated with this connection.
      */
-    private ProtocolVersion protocolVersion = ProtocolVersion.DEFAULT;
+    private ProtocolVersion     protocolVersion = ProtocolVersion.DEFAULT;
 
     /*
      * Crypto state that's reinitialized when the session changes.
      */
-    private MAC readMAC, writeMAC;
-    private CipherBox readCipher, writeCipher;
+    private MAC                 readMAC, writeMAC;
+    private CipherBox           readCipher, writeCipher;
     // NOTE: compression state would be saved here
 
     /*
@@ -950,35 +950,15 @@ final public class SSLEngineImpl extends SSLEngine {
              * throw a fatal alert if the integrity check fails.
              */
             try {
-                decryptedBB = inputRecord.decrypt(readCipher, readBB);
+                decryptedBB = inputRecord.decrypt(readMAC, readCipher, readBB);
             } catch (BadPaddingException e) {
-                // RFC 2246 states that decryption_failed should be used
-                // for this purpose. However, that allows certain attacks,
-                // so we just send bad record MAC. We also need to make
-                // sure to always check the MAC to avoid a timing attack
-                // for the same issue. See paper by Vaudenay et al.
-                //
-                // rewind the BB if necessary.
-                readBB.rewind();
-
-                inputRecord.checkMAC(readMAC, readBB);
-
-                // use the same alert types as for MAC failure below
                 byte alertType = (inputRecord.contentType() ==
                     Record.ct_handshake) ?
                         Alerts.alert_handshake_failure :
                         Alerts.alert_bad_record_mac;
-                fatal(alertType, "Invalid padding", e);
+                fatal(alertType, e.getMessage(), e);
             }
 
-            if (!inputRecord.checkMAC(readMAC, decryptedBB)) {
-                if (inputRecord.contentType() == Record.ct_handshake) {
-                    fatal(Alerts.alert_handshake_failure,
-                        "bad handshake record MAC");
-                } else {
-                    fatal(Alerts.alert_bad_record_mac, "bad record MAC");
-                }
-            }
 
             // if (!inputRecord.decompress(c))
             //     fatal(Alerts.alert_decompression_failure,
@@ -1022,7 +1002,6 @@ final public class SSLEngineImpl extends SSLEngine {
                      * a finished message.
                      */
                     handshaker.process_record(inputRecord, expectingFinished);
-
                     // BEGIN GRIZZLY NPN
                     // Don't touch the flag unless the handshaker has
                     // been invalidated or the handshake is done.

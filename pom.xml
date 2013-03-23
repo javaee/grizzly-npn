@@ -14,6 +14,41 @@
     <packaging>pom</packaging>
     <version>1.0-SNAPSHOT</version>
 
+    <url>http://grizzly.java.net</url>
+    <issueManagement>
+        <system>JIRA</system>
+        <url>http://java.net/jira/browse/GRIZZLY</url>
+    </issueManagement>
+    <mailingLists>
+        <mailingList>
+            <name>Grizzly Dev List</name>
+            <archive>dev@grizzly.java.net</archive>
+        </mailingList>
+        <mailingList>
+            <name>Grizzly Support List</name>
+            <archive>users@grizzly.java.net</archive>
+        </mailingList>
+    </mailingLists>
+    <developers>
+        <developer>
+            <id>rlubke</id>
+            <name>Ryan Lubke</name>
+            <email>rlubke@java.net</email>
+            <url>http://blogs.sun.com/rlubke</url>
+            <organization>Oracle Corporation</organization>
+            <organizationUrl>http://www.oracle.com</organizationUrl>
+        </developer>
+    </developers>
+    <scm>
+        <connection>scm:git:git://java.net/grizzly~npn</connection>
+        <developerConnection>scm:git:ssh://${user.name}@git.java.net/grizzly~npn</developerConnection>
+        <url>http://java.net/projects/grizzly/sources/npn/show</url>
+    </scm>
+    <organization>
+        <name>Oracle Corporation</name>
+        <url>http://www.oracle.com</url>
+    </organization>
+    
     <build>
         <plugins>
             <plugin>

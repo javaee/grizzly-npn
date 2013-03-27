@@ -1306,9 +1306,11 @@ final class ClientHandshaker extends Handshaker {
         // BEGIN GRIZZLY NPN
         // Add the NPN extension to the ClientHello if the ClientSideNegotiator
         // wants to attempt negotiation.
-        ClientSideNegotiator negotiator = NegotiationSupport.getClientSideNegotiator(engine);
-        if (negotiator != null && negotiator.wantNegotiate(engine)) {
-            clientHelloMessage.addNextProtocolNegotiationExtension();
+        if (engine != null) { // ClientHandshaker might have been initialized by SSLSocketImpl
+            ClientSideNegotiator negotiator = NegotiationSupport.getClientSideNegotiator(engine);
+            if (negotiator != null && negotiator.wantNegotiate(engine)) {
+                clientHelloMessage.addNextProtocolNegotiationExtension();
+            }
         }
         // END GRIZZLY NPN
 

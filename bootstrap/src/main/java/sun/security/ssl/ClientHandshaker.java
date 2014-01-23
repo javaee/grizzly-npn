@@ -44,6 +44,7 @@ import javax.net.ssl.*;
 
 import javax.security.auth.Subject;
 
+import org.glassfish.grizzly.npn.AlpnClientNegotiator;
 import org.glassfish.grizzly.npn.ClientSideNegotiator;
 import org.glassfish.grizzly.npn.NegotiationSupport;
 import sun.security.ssl.HandshakeMessage.*;
@@ -466,6 +467,20 @@ final class ClientHandshaker extends Handshaker {
         setCipherSuite(mesg.cipherSuite);
         if (protocolVersion.v >= ProtocolVersion.TLS12.v) {
             handshakeHash.setFinishedAlg(cipherSuite.prfAlg.getPRFHashAlg());
+            // BEGIN GRIZZLY NPN
+            // check for alpn protocol selection
+            AlpnClientNegotiator negotiator =
+                    NegotiationSupport.getAlpnClientNegotiator(engine);
+            if (negotiator != null) {
+                AlpnExtension serverHelloAlpn = (AlpnExtension)
+                        mesg.extensions.get(
+                                ExtensionType.EXT_APPLICATION_LEVEL_PROTOCOL_NEGOTIATION);
+                if (serverHelloAlpn != null) {
+                    negotiator.protocolSelected(engine,
+                                                serverHelloAlpn.protocols[0]);
+                }
+            }
+            // END GRIZZLY NPN
         }
 
         if (mesg.compression_method != 0) {
@@ -573,7 +588,8 @@ final class ClientHandshaker extends Handshaker {
                     && (type != ExtensionType.EXT_RENEGOTIATION_INFO)
                     // BEGIN GRIZZLY NPN
                     // Include NPN as a supported extension.
-                    && (type != ExtensionType.EXT_NEXT_PROTOCOL_NEGOTIATION)) {
+                    && (type != ExtensionType.EXT_NEXT_PROTOCOL_NEGOTIATION)
+                    && (type != ExtensionType.EXT_APPLICATION_LEVEL_PROTOCOL_NEGOTIATION)) {
                     // END GRIZZLY NONE
                 fatalSE(Alerts.alert_unsupported_extension,
                     "Server sent an unsupported extension: " + type);

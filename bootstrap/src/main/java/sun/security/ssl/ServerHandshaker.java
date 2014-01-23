@@ -40,6 +40,7 @@ import javax.net.ssl.*;
 
 import javax.security.auth.Subject;
 
+import org.glassfish.grizzly.npn.AlpnServerNegotiator;
 import org.glassfish.grizzly.npn.NegotiationSupport;
 import org.glassfish.grizzly.npn.ServerSideNegotiator;
 import sun.security.ssl.HandshakeMessage.*;
@@ -442,6 +443,28 @@ final class ServerHandshaker extends Handshaker {
                 }
             }
         }
+
+        // check the ALPN Extension
+        String alpnProtocol = null;
+        if (activeProtocolVersion.v >= ProtocolVersion.TLS12.v) {
+            AlpnExtension alpnExt = (AlpnExtension)
+                    mesg.extensions
+                            .get(ExtensionType.EXT_APPLICATION_LEVEL_PROTOCOL_NEGOTIATION);
+            if (alpnExt != null) {
+                final AlpnServerNegotiator serverNegotiator =
+                        NegotiationSupport.getAlpnServerNegotiator(engine);
+                if (serverNegotiator != null) {
+                    alpnProtocol = serverNegotiator.selectProtocol(engine,
+                                                                   alpnExt.protocols);
+                    if (alpnProtocol == null || alpnProtocol.isEmpty()) {
+                        // TODO enhance diagnostics
+                        fatalSE(Alerts.alert_no_application_protocol,
+                                "No matching application protocol found.");
+                    }
+                }
+
+            }
+        }
         // END GRIZZLY NPN
 
         /*
@@ -706,6 +729,14 @@ final class ServerHandshaker extends Handshaker {
         // BEGIN GRIZZLY NPN
         if (responseExtension != null) {
             m1.extensions.add(responseExtension);
+        }
+
+        if (isInitialHandshake && alpnProtocol != null) {
+            // TODO - get rid of array allocation - not needed here.
+            final AlpnExtension ext =
+                    AlpnExtension.builder().
+                            selectedProtocol(alpnProtocol).build();
+            m1.extensions.add(ext);
         }
         // END GRIZZLY NPN
 

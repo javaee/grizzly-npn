@@ -99,6 +99,8 @@ final class HelloExtensions {
             // BEGIN GRIZZLY NPN
             } else if (extType == ExtensionType.EXT_NEXT_PROTOCOL_NEGOTIATION) {
                 extension = NextProtocolNegotiationExtension.builder().handshakeIn(s, extlen).build();
+            } else if (extType == ExtensionType.EXT_APPLICATION_LEVEL_PROTOCOL_NEGOTIATION) {
+                                extension = AlpnExtension.builder().handshakeIn(s, extlen).build();
             // END GRIZZLY NPN
             } else {
                 extension = new UnknownExtension(s, extlen, extType);
@@ -238,7 +240,12 @@ final class ExtensionType {
     final static ExtensionType EXT_RENEGOTIATION_INFO =
             e(0xff01, "renegotiation_info");     // IANA registry value: 65281
 
-    //BEGIN GRIZZLY NPN
+    // START GRIZZLY NPN
+    // extension defined in draft-ietf-tls-applayerprotoneg
+    final static ExtensionType EXT_APPLICATION_LEVEL_PROTOCOL_NEGOTIATION =
+            e(AlpnExtension.ID, AlpnExtension.NAME); // IANA registry value: 16
+
+
     // extension defined in http://tools.ietf.org/html/draft-agl-tls-nextprotoneg-03
     // This value may change.  Draft 04 currently doesn't define a value here.
     final static ExtensionType EXT_NEXT_PROTOCOL_NEGOTIATION =
@@ -1021,5 +1028,138 @@ final class NextProtocolNegotiationExtension extends HelloExtension {
     } // END Builder
 
 } // END NextProtocolNegotiationExtension
+
+class AlpnExtension extends HelloExtension {
+
+    private static final String ALPN_TO_STRING_MSG =
+            "Application Layer Protocol Extension (ALPN) [0x%x/%d], " +
+                    "client protocols: %s, selected protocol: %s, serialized " +
+                    "data: %s";
+
+    static final int ID = 0x0010;
+    static final String NAME = "alpn";
+
+    String selectedProtocol;
+    String[] protocols;
+    byte[] outData;
+
+    AlpnExtension(ExtensionType extensionType) {
+        super(extensionType);
+    }
+
+    @Override
+    int length() {
+        // Length of the encoded extension, including the type and length fields
+        // - Two bytes for the extension type
+        // - Two bytes for the extension length
+        // - Two bytes for the name list length
+        // - length of the encoded protocols
+        return 6 + (short) outData.length;
+    }
+
+    @Override
+    void send(HandshakeOutStream handshakeOutStream) throws IOException {
+        handshakeOutStream.putInt16(ID);
+        handshakeOutStream.putInt16(outData.length + 2);
+        handshakeOutStream.putInt16(outData.length);
+        handshakeOutStream.write(outData);
+    }
+
+    @Override
+    public String toString() {
+        return String.format(ALPN_TO_STRING_MSG,
+                             ID,
+                             ID,
+                             Arrays.toString(protocols),
+                             selectedProtocol,
+                             Debug.toString(outData));
+    }
+
+    static Builder builder() {
+        return new Builder();
+    }
+
+
+    static final class Builder {
+
+        private static final byte[] EMPTY_DATA = new byte[0];
+        private static final String[] NO_PROTOCOLS = new String[0];
+
+
+        private final AlpnExtension extension =
+                new AlpnExtension(ExtensionType.get(ID));
+
+        private HandshakeInStream in;
+        private int len;
+
+        Builder selectedProtocol(final String selectedProtocol) {
+            extension.selectedProtocol = selectedProtocol;
+            return this;
+        }
+
+        Builder protocols(final String[] protocols) {
+            extension.protocols = protocols;
+            return this;
+        }
+
+        Builder handshakeIn(final HandshakeInStream in, final int len) {
+            this.in = in;
+            // TODO len shouldn't be more than 2^16-1
+            this.len = len;
+            return this;
+        }
+
+        AlpnExtension build() throws IOException {
+            if (in != null) {
+                if (len > 0) {
+                    final List<String> list = new ArrayList<>(4);
+                    int read = 0;
+                    int newLen = in.getInt16();
+                    while (read != newLen) {
+                        // Draft-03, section 3 states:
+                        //    "Protocols are named by opaque, non-empty byte strings
+                        //     and the list of protocols is serialized as a concatenation
+                        //     of 8-bit length prefixed byte strings."
+                        byte[] protocol = new byte[in.getInt8()];
+                        in.read(protocol);
+                        // the character encoding currently specified is UTF-8.
+                        // TODO, make this lazy.
+                        list.add(new String(protocol, "UTF-8"));
+                        read += protocol.length + 1; // add one for the length prefix
+                    }
+                    extension.protocols = list.toArray(new String[list.size()]);
+                } else {
+                    extension.protocols = NO_PROTOCOLS;
+                }
+            } else {
+                if (extension.selectedProtocol != null) {
+                    ByteArrayOutputStream out = new ByteArrayOutputStream();
+                    out.write((byte) extension.selectedProtocol.length());
+                    out.write(extension.selectedProtocol.getBytes("UTF-8"));
+                } else {
+                    if (extension.protocols.length == 0) {
+                        extension.outData = EMPTY_DATA;
+                    } else {
+                        ByteArrayOutputStream out = new ByteArrayOutputStream();
+                        for (String protocol : extension.protocols) {
+                            if (protocol.length() > 0 && protocol.length() < 256) {
+                                out.write((byte) protocol.length());
+                                out.write(protocol.getBytes("UTF-8"));
+                            } else {
+                                // TODO add logging for the case where the
+                                // protocol is an empty string or greater than 2^8-1.
+                            }
+                        }
+                        // TODO len of outData shouldn't be more than 2^16-1
+                        extension.outData = out.toByteArray();
+                    }
+                }
+            }
+            return extension;
+        }
+
+    } // END Builder
+
+} // END AlpnExtension
 
 

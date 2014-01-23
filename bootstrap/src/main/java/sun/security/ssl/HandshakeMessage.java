@@ -44,6 +44,8 @@ import javax.crypto.SecretKey;
 
 import javax.net.ssl.*;
 
+import org.glassfish.grizzly.npn.AlpnClientNegotiator;
+import org.glassfish.grizzly.npn.NegotiationSupport;
 import sun.security.internal.spec.TlsPrfParameterSpec;
 import sun.security.ssl.CipherSuite;
 import sun.security.ssl.CipherSuite.*;
@@ -413,6 +415,23 @@ static final class ClientHello extends HandshakeMessage {
             extensions.add(NextProtocolNegotiationExtension.builder().build());
         } catch (IOException ioe) {
             // won't happen with an empty builder.
+        }
+    }
+
+    void addAlpnExtension(final SSLEngineImpl sslEngine) {
+        AlpnClientNegotiator clientNegotiator =
+                NegotiationSupport.getAlpnClientNegotiator(sslEngine);
+        if (clientNegotiator != null) {
+            final String[] protocols = clientNegotiator.getProtocols(sslEngine);
+            if (protocols.length != 0) {
+                try {
+                    extensions.add(AlpnExtension.builder()
+                                           .protocols(protocols)
+                                           .build());
+                } catch (IOException ignored) {
+                    // this won't occur with this particular invocation.
+                }
+            }
         }
     }
     // END GRIZZLY NPN

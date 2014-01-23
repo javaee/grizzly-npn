@@ -1,7 +1,7 @@
 /*
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS HEADER.
  *
- * Copyright (c) 2013 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013-2014 Oracle and/or its affiliates. All rights reserved.
  *
  * The contents of this file are subject to the terms of either the GNU
  * General Public License Version 2 only ("GPL") or the Common Development
@@ -44,8 +44,8 @@ import javax.net.ssl.SSLEngine;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Utility class to register, obtain, and/or remove {Server,Client}SideNegotiator
- * instances.
+ * Utility class to register, obtain, and/or remove Client/Server NPN/ALPN
+ * negotiator instances.
  */
 public class NegotiationSupport {
 
@@ -53,6 +53,10 @@ public class NegotiationSupport {
             new ConcurrentHashMap<SSLEngine, ServerSideNegotiator>();
     private static final ConcurrentHashMap<SSLEngine, ClientSideNegotiator> clientSideNegotiators =
                 new ConcurrentHashMap<SSLEngine, ClientSideNegotiator>();
+    private static final ConcurrentHashMap<SSLEngine, AlpnServerNegotiator> alpnServerNegotiators =
+                new ConcurrentHashMap<SSLEngine, AlpnServerNegotiator>();
+        private static final ConcurrentHashMap<SSLEngine, AlpnClientNegotiator> alpnClientNegotiators =
+                    new ConcurrentHashMap<SSLEngine, AlpnClientNegotiator>();
 
     /**
      * Add a {@link ServerSideNegotiator} that will be invoked when handshake
@@ -73,6 +77,24 @@ public class NegotiationSupport {
     }
 
     /**
+     * Add a {@link AlpnServerNegotiator} that will be invoked when handshake
+     * activity occurs against the specified {@link SSLEngine}.
+     */
+    public static void addNegotiator(final SSLEngine engine,
+                                     final AlpnServerNegotiator serverSideNegotiator) {
+        alpnServerNegotiators.putIfAbsent(engine, serverSideNegotiator);
+    }
+
+    /**
+     * Add a {@link AlpnClientNegotiator} that will be invoked when handshake
+     * activity occurs against the specified {@link SSLEngine}.
+     */
+    public static void addNegotiator(final SSLEngine engine,
+                                     final AlpnClientNegotiator clientSideNegotiator) {
+        alpnClientNegotiators.putIfAbsent(engine, clientSideNegotiator);
+    }
+
+    /**
      * Disassociate the {@link ClientSideNegotiator} associated with the specified
      * {@link SSLEngine}.
      */
@@ -81,11 +103,27 @@ public class NegotiationSupport {
     }
 
     /**
+     * Disassociate the {@link AlpnClientNegotiator} associated with the specified
+     * {@link SSLEngine}.
+     */
+    public static AlpnClientNegotiator removeAlpnClientNegotiator(final SSLEngine engine) {
+        return alpnClientNegotiators.remove(engine);
+    }
+
+    /**
      * Disassociate the {@link ServerSideNegotiator} associated with the specified
      * {@link SSLEngine}.
      */
     public static ServerSideNegotiator removeServerNegotiator(final SSLEngine engine) {
         return serverSideNegotiators.remove(engine);
+    }
+
+    /**
+     * Disassociate the {@link AlpnServerNegotiator} associated with the specified
+     * {@link SSLEngine}.
+     */
+    public static AlpnServerNegotiator removeAlpnServerNegotiator(final SSLEngine engine) {
+        return alpnServerNegotiators.remove(engine);
     }
 
     /**
@@ -104,5 +142,20 @@ public class NegotiationSupport {
         return clientSideNegotiators.get(engine);
     }
 
+    /**
+     * Returns the {@link AlpnServerNegotiator} associated with the specified
+     * {@link SSLEngine}.
+     */
+    public static AlpnServerNegotiator getAlpnServerNegotiator(final SSLEngine engine) {
+        return alpnServerNegotiators.get(engine);
+    }
+
+    /**
+     * Returns the {@link AlpnClientNegotiator} associated with the specified
+     * {@link SSLEngine}.
+     */
+    public static AlpnClientNegotiator getAlpnClientNegotiator(final SSLEngine engine) {
+        return alpnClientNegotiators.get(engine);
+    }
 
 }

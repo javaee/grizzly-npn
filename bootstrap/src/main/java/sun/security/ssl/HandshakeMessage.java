@@ -26,29 +26,30 @@
 package sun.security.ssl;
 
 import java.io.*;
+import java.lang.reflect.*;
 import java.math.BigInteger;
 import java.security.*;
-import java.security.interfaces.*;
-import java.security.spec.*;
 import java.security.cert.*;
 import java.security.cert.Certificate;
+import java.security.interfaces.*;
+import java.security.spec.*;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-
-import java.lang.reflect.*;
-
-import javax.security.auth.x500.X500Principal;
-
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
+import javax.crypto.spec.DHPublicKeySpec;
 
 import javax.net.ssl.*;
 
+import javax.security.auth.x500.X500Principal;
 import org.glassfish.grizzly.npn.AlpnClientNegotiator;
 import org.glassfish.grizzly.npn.NegotiationSupport;
 import sun.security.internal.spec.TlsPrfParameterSpec;
 import sun.security.ssl.CipherSuite;
 import sun.security.ssl.CipherSuite.*;
+import sun.security.ssl.CipherSuite.KeyExchange;
+import sun.security.ssl.CipherSuite.PRF;
+import static sun.security.ssl.CipherSuite.PRF.*;
 import sun.security.ssl.CipherSuiteList;
 import sun.security.ssl.DHCrypt;
 import sun.security.ssl.Debug;
@@ -62,8 +63,8 @@ import sun.security.ssl.RSASignature;
 import sun.security.ssl.RandomCookie;
 import sun.security.ssl.SessionId;
 import sun.security.ssl.SignatureAndHashAlgorithm;
+import sun.security.util.KeyUtil;
 
-import static sun.security.ssl.CipherSuite.PRF.*;
 
 /**
  * Many data structures are involved in the handshake messages.  These
@@ -155,7 +156,7 @@ public abstract class HandshakeMessage {
      */
     final void write(HandshakeOutStream s) throws IOException {
         int len = messageLength();
-        if (len > (1 << 24)) {
+        if (len >= Record.OVERFLOW_OF_INT24) {
             throw new SSLException("Handshake message too big"
                 + ", type = " + messageType() + ", len = " + len);
         }
@@ -339,10 +340,10 @@ static final class HelloRequest extends HandshakeMessage {
  */
 static final class ClientHello extends HandshakeMessage {
 
-    ProtocolVersion protocolVersion;
-    RandomCookie clnt_random;
-    SessionId sessionId;
-    private CipherSuiteList cipherSuites;
+    ProtocolVersion     protocolVersion;
+    RandomCookie        clnt_random;
+    SessionId           sessionId;
+    private CipherSuiteList    cipherSuites;
     byte[]              compression_methods;
 
     HelloExtensions extensions = new HelloExtensions();
@@ -498,7 +499,7 @@ class ServerHello extends HandshakeMessage
     ProtocolVersion     protocolVersion;
     RandomCookie        svr_random;
     SessionId           sessionId;
-    CipherSuite cipherSuite;
+    CipherSuite         cipherSuite;
     byte                compression_method;
     HelloExtensions extensions = new HelloExtensions();
 
@@ -862,6 +863,7 @@ class DH_ServerKeyExchange extends ServerKeyExchange
         this.protocolVersion = protocolVersion;
         this.preferableSignatureAlgorithm = null;
 
+        // The DH key has been validated in the constructor of DHCrypt.
         setValues(obj);
         signature = null;
     }
@@ -878,6 +880,7 @@ class DH_ServerKeyExchange extends ServerKeyExchange
 
         this.protocolVersion = protocolVersion;
 
+        // The DH key has been validated in the constructor of DHCrypt.
         setValues(obj);
 
         Signature sig;
@@ -904,7 +907,8 @@ class DH_ServerKeyExchange extends ServerKeyExchange
      * DH_anon key exchange
      */
     DH_ServerKeyExchange(HandshakeInStream input,
-            ProtocolVersion protocolVersion) throws IOException {
+            ProtocolVersion protocolVersion)
+            throws IOException, GeneralSecurityException {
 
         this.protocolVersion = protocolVersion;
         this.preferableSignatureAlgorithm = null;
@@ -912,6 +916,10 @@ class DH_ServerKeyExchange extends ServerKeyExchange
         dh_p = input.getBytes16();
         dh_g = input.getBytes16();
         dh_Ys = input.getBytes16();
+        KeyUtil.validate(new DHPublicKeySpec(new BigInteger(1, dh_Ys),
+                                             new BigInteger(1, dh_p),
+                                             new BigInteger(1, dh_g)));
+
         signature = null;
     }
 
@@ -932,6 +940,9 @@ class DH_ServerKeyExchange extends ServerKeyExchange
         dh_p = input.getBytes16();
         dh_g = input.getBytes16();
         dh_Ys = input.getBytes16();
+        KeyUtil.validate(new DHPublicKeySpec(new BigInteger(1, dh_Ys),
+                                             new BigInteger(1, dh_p),
+                                             new BigInteger(1, dh_g)));
 
         // read the signature and hash algorithm
         if (protocolVersion.v >= ProtocolVersion.TLS12.v) {

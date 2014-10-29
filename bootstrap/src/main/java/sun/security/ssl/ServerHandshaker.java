@@ -446,24 +446,22 @@ final class ServerHandshaker extends Handshaker {
 
         // check the ALPN Extension
         String alpnProtocol = null;
-        if (activeProtocolVersion.v >= ProtocolVersion.TLS12.v) {
-            AlpnExtension alpnExt = (AlpnExtension)
-                    mesg.extensions
-                            .get(ExtensionType.EXT_APPLICATION_LEVEL_PROTOCOL_NEGOTIATION);
-            if (alpnExt != null) {
-                final AlpnServerNegotiator serverNegotiator =
-                        NegotiationSupport.getAlpnServerNegotiator(engine);
-                if (serverNegotiator != null) {
-                    alpnProtocol = serverNegotiator.selectProtocol(engine,
-                                                                   alpnExt.protocols);
-                    if (alpnProtocol == null || alpnProtocol.isEmpty()) {
-                        // TODO enhance diagnostics
-                        fatalSE(Alerts.alert_no_application_protocol,
-                                "No matching application protocol found.");
-                    }
+        AlpnExtension alpnExt = (AlpnExtension)
+                mesg.extensions
+                        .get(ExtensionType.EXT_APPLICATION_LEVEL_PROTOCOL_NEGOTIATION);
+        if (alpnExt != null) {
+            final AlpnServerNegotiator serverNegotiator =
+                    NegotiationSupport.getAlpnServerNegotiator(engine);
+            if (serverNegotiator != null) {
+                alpnProtocol = serverNegotiator.selectProtocol(engine,
+                                                               alpnExt.protocols);
+                if (alpnProtocol == null || alpnProtocol.isEmpty()) {
+                    // TODO enhance diagnostics
+                    fatalSE(Alerts.alert_no_application_protocol,
+                            "No matching application protocol found.");
                 }
-
             }
+
         }
         // END GRIZZLY NPN
 

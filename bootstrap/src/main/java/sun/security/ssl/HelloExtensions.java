@@ -1133,9 +1133,15 @@ class AlpnExtension extends HelloExtension {
                 }
             } else {
                 if (extension.selectedProtocol != null) {
-                    ByteArrayOutputStream out = new ByteArrayOutputStream();
-                    out.write((byte) extension.selectedProtocol.length());
-                    out.write(extension.selectedProtocol.getBytes("UTF-8"));
+                    final byte[] selectedProtocolBytes =
+                            extension.selectedProtocol.getBytes("UTF-8");
+                    
+                    final byte[] outBytes = new byte[selectedProtocolBytes.length + 1];
+                    outBytes[0] = (byte) selectedProtocolBytes.length;
+                    System.arraycopy(selectedProtocolBytes, 0,
+                            outBytes, 1, selectedProtocolBytes.length);
+                    
+                    extension.outData = outBytes;
                 } else {
                     if (extension.protocols.length == 0) {
                         extension.outData = EMPTY_DATA;

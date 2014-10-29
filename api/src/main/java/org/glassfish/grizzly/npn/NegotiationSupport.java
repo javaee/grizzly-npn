@@ -50,13 +50,13 @@ import java.util.concurrent.ConcurrentHashMap;
 public class NegotiationSupport {
 
     private static final ConcurrentHashMap<SSLEngine, ServerSideNegotiator> serverSideNegotiators =
-            new ConcurrentHashMap<SSLEngine, ServerSideNegotiator>();
+            new ConcurrentHashMap<SSLEngine, ServerSideNegotiator>(4);
     private static final ConcurrentHashMap<SSLEngine, ClientSideNegotiator> clientSideNegotiators =
-                new ConcurrentHashMap<SSLEngine, ClientSideNegotiator>();
+                new ConcurrentHashMap<SSLEngine, ClientSideNegotiator>(4);
     private static final ConcurrentHashMap<SSLEngine, AlpnServerNegotiator> alpnServerNegotiators =
-                new ConcurrentHashMap<SSLEngine, AlpnServerNegotiator>();
+                new ConcurrentHashMap<SSLEngine, AlpnServerNegotiator>(4);
         private static final ConcurrentHashMap<SSLEngine, AlpnClientNegotiator> alpnClientNegotiators =
-                    new ConcurrentHashMap<SSLEngine, AlpnClientNegotiator>();
+                    new ConcurrentHashMap<SSLEngine, AlpnClientNegotiator>(4);
 
     /**
      * Add a {@link ServerSideNegotiator} that will be invoked when handshake
@@ -127,7 +127,7 @@ public class NegotiationSupport {
     }
 
     /**
-     * Returns the {@link ServerSideNegotiator} associated with the specified
+     * @return the {@link ServerSideNegotiator} associated with the specified
      * {@link SSLEngine}.
      */
     public static ServerSideNegotiator getServerSideNegotiator(final SSLEngine engine) {
@@ -135,7 +135,7 @@ public class NegotiationSupport {
     }
 
     /**
-     * Returns the {@link ClientSideNegotiator} associated with the specified
+     * @return the {@link ClientSideNegotiator} associated with the specified
      * {@link SSLEngine}.
      */
     public static ClientSideNegotiator getClientSideNegotiator(final SSLEngine engine) {
@@ -143,7 +143,7 @@ public class NegotiationSupport {
     }
 
     /**
-     * Returns the {@link AlpnServerNegotiator} associated with the specified
+     * @return the {@link AlpnServerNegotiator} associated with the specified
      * {@link SSLEngine}.
      */
     public static AlpnServerNegotiator getAlpnServerNegotiator(final SSLEngine engine) {
@@ -151,7 +151,7 @@ public class NegotiationSupport {
     }
 
     /**
-     * Returns the {@link AlpnClientNegotiator} associated with the specified
+     * @return the {@link AlpnClientNegotiator} associated with the specified
      * {@link SSLEngine}.
      */
     public static AlpnClientNegotiator getAlpnClientNegotiator(final SSLEngine engine) {

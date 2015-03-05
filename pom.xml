@@ -61,14 +61,14 @@
                         <goals>
                             <goal>enforce</goal>
                         </goals>
-                        <configuration>
+                       <configuration>
                             <rules>
                                 <requireProperty>
                                     <property>java.vm.name</property>
-                                    <message>You must use Open JDK 7 to build
+                                    <message>You must use Open JDK 8 to build
                                         this module.
                                     </message>
-                                    <regex>^(OpenJDK).*</regex>
+                                    <!--<regex>^(OpenJDK).*</regex>-->
                                 </requireProperty>
                             </rules>
                         </configuration>

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2015, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -36,6 +36,8 @@ import java.security.spec.ECParameterSpec;
 
 import java.security.cert.X509Certificate;
 import java.security.cert.CertificateException;
+import java.security.cert.CertificateParsingException;
+import javax.security.auth.x500.X500Principal;
 
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
@@ -48,10 +50,7 @@ import org.glassfish.grizzly.npn.AlpnClientNegotiator;
 import org.glassfish.grizzly.npn.ClientSideNegotiator;
 import org.glassfish.grizzly.npn.NegotiationSupport;
 import sun.security.ssl.HandshakeMessage.*;
-import sun.security.ssl.CipherSuite.*;
 import static sun.security.ssl.CipherSuite.KeyExchange.*;
-
-import sun.net.util.IPAddressUtil;
 
 /**
  * ClientHandshaker does the protocol handshaking from the point
@@ -96,6 +95,65 @@ final class ClientHandshaker extends Handshaker {
             Debug.getBooleanProperty("jsse.enableSNIExtension", true);
 
     /*
+     * Allow unsafe server certificate change?
+     *
+     * Server certificate change during SSL/TLS renegotiation may be considered
+     * unsafe, as described in the Triple Handshake attacks:
+     *
+     *     https://secure-resumption.com/tlsauth.pdf
+     *
+     * Endpoint identification (See
+     * SSLParameters.getEndpointIdentificationAlgorithm()) is a pretty nice
+     * guarantee that the server certificate change in renegotiation is legal.
+     * However, endpoing identification is only enabled for HTTPS and LDAP
+     * over SSL/TLS by default.  It is not enough to protect SSL/TLS
+     * connections other than HTTPS and LDAP.
+     *
+     * The renegotiation indication extension (See RFC 5764) is a pretty
+     * strong guarantee that the endpoints on both client and server sides
+     * are identical on the same connection.  However, the Triple Handshake
+     * attacks can bypass this guarantee if there is a session-resumption
+     * handshake between the initial full handshake and the renegotiation
+     * full handshake.
+     *
+     * Server certificate change may be unsafe and should be restricted if
+     * endpoint identification is not enabled and the previous handshake is
+     * a session-resumption abbreviated initial handshake, unless the
+     * identities represented by both certificates can be regraded as the
+     * same (See isIdentityEquivalent()).
+     *
+     * Considering the compatibility impact and the actual requirements to
+     * support server certificate change in practice, the system property,
+     * jdk.tls.allowUnsafeServerCertChange, is used to define whether unsafe
+     * server certificate change in renegotiation is allowed or not.  The
+     * default value of the system property is "false".  To mitigate the
+     * compactibility impact, applications may want to set the system
+     * property to "true" at their own risk.
+     *
+     * If the value of the system property is "false", server certificate
+     * change in renegotiation after a session-resumption abbreviated initial
+     * handshake is restricted (See isIdentityEquivalent()).
+     *
+     * If the system property is set to "true" explicitly, the restriction on
+     * server certificate change in renegotiation is disabled.
+     */
+    private final static boolean allowUnsafeServerCertChange =
+        Debug.getBooleanProperty("jdk.tls.allowUnsafeServerCertChange", false);
+
+    private List<SNIServerName> requestedServerNames =
+            Collections.<SNIServerName>emptyList();
+
+    private boolean serverNamesAccepted = false;
+
+    /*
+     * the reserved server certificate chain in previous handshaking
+     *
+     * The server certificate chain is only reserved if the previous
+     * handshake is a session-resumption abbreviated initial handshake.
+     */
+    private X509Certificate[] reservedServerCerts = null;
+
+    /*
      * Constructors
      */
     ClientHandshaker(SSLSocketImpl socket, SSLContextImpl context,
@@ -130,6 +188,7 @@ final class ClientHandshaker extends Handshaker {
      * is processed, and writes responses as needed using the connection
      * in the constructor.
      */
+    @Override
     void processMessage(byte type, int messageLen) throws IOException {
         if (state >= type
                 && (type != HandshakeMessage.ht_hello_request)) {
@@ -524,6 +583,7 @@ final class ClientHandshaker extends Handshaker {
                     try {
                         subject = AccessController.doPrivileged(
                             new PrivilegedExceptionAction<Subject>() {
+                            @Override
                             public Subject run() throws Exception {
                                 return Krb5Helper.getClientSubject(getAccSE());
                             }});
@@ -568,25 +628,28 @@ final class ClientHandshaker extends Handshaker {
                 // we wanted to resume, but the server refused
                 session = null;
                 if (!enableNewSession) {
-                    throw new SSLException
-                        ("New session creation is disabled");
+                    throw new SSLException("New session creation is disabled");
                 }
             }
         }
 
         if (resumingSession && session != null) {
-            if (protocolVersion.v >= ProtocolVersion.TLS12.v) {
-                handshakeHash.setCertificateVerifyAlg(null);
+            setHandshakeSessionSE(session);
+            // Reserve the handshake state if this is a session-resumption
+            // abbreviated initial handshake.
+            if (isInitialHandshake) {
+                session.setAsSessionResumption(true);
             }
 
-            setHandshakeSessionSE(session);
             return;
         }
 
         // check extensions
         for (HelloExtension ext : mesg.extensions.list()) {
             ExtensionType type = ext.type;
-            if ((type != ExtensionType.EXT_ELLIPTIC_CURVES)
+            if (type == ExtensionType.EXT_SERVER_NAME) {
+                serverNamesAccepted = true;
+            } else if ((type != ExtensionType.EXT_ELLIPTIC_CURVES)
                     && (type != ExtensionType.EXT_EC_POINT_FORMATS)
                     && (type != ExtensionType.EXT_SERVER_NAME)
                     && (type != ExtensionType.EXT_RENEGOTIATION_INFO)
@@ -628,6 +691,7 @@ final class ClientHandshaker extends Handshaker {
         session = new SSLSessionImpl(protocolVersion, cipherSuite,
                             getLocalSupportedSignAlgs(),
                             mesg.sessionId, getHostSE(), getPortSE());
+        session.setRequestedServerNames(requestedServerNames);
         setHandshakeSessionSE(session);
         if (debug != null && Debug.isOn("handshake")) {
             System.out.println("** " + cipherSuite);
@@ -911,15 +975,47 @@ final class ClientHandshaker extends Handshaker {
             break;
         case K_KRB5:
         case K_KRB5_EXPORT:
-            String hostname = getHostSE();
-            if (hostname == null) {
-                throw new IOException("Hostname is required" +
-                                " to use Kerberos cipher suites");
+            String sniHostname = null;
+            for (SNIServerName serverName : requestedServerNames) {
+                if (serverName instanceof SNIHostName) {
+                    sniHostname = ((SNIHostName) serverName).getAsciiName();
+                    break;
+                }
             }
-            KerberosClientKeyExchange kerberosMsg =
-                new KerberosClientKeyExchange(
-                    hostname, isLoopbackSE(), getAccSE(), protocolVersion,
-                sslContext.getSecureRandom());
+
+            KerberosClientKeyExchange kerberosMsg = null;
+            if (sniHostname != null) {
+                // use first requested SNI hostname
+                try {
+                    kerberosMsg = new KerberosClientKeyExchange(
+                        sniHostname, getAccSE(), protocolVersion,
+                        sslContext.getSecureRandom());
+                } catch(IOException e) {
+                    if (serverNamesAccepted) {
+                        // server accepted requested SNI hostname,
+                        // so it must be used
+                        throw e;
+                    }
+                    // fallback to using hostname
+                    if (debug != null && Debug.isOn("handshake")) {
+                        System.out.println(
+                            "Warning, cannot use Server Name Indication: "
+                                + e.getMessage());
+                    }
+                }
+            }
+
+            if (kerberosMsg == null) {
+                String hostname = getHostSE();
+                if (hostname == null) {
+                    throw new IOException("Hostname is required" +
+                        " to use Kerberos cipher suites");
+                }
+                kerberosMsg = new KerberosClientKeyExchange(
+                        hostname, getAccSE(), protocolVersion,
+                        sslContext.getSecureRandom());
+            }
+
             // Record the principals involved in exchange
             session.setPeerPrincipal(kerberosMsg.getPeerPrincipal());
             session.setLocalPrincipal(kerberosMsg.getLocalPrincipal());
@@ -1021,8 +1117,6 @@ final class ClientHandshaker extends Handshaker {
                         throw new SSLHandshakeException(
                                 "No supported hash algorithm");
                     }
-
-                    handshakeHash.setCertificateVerifyAlg(hashAlg);
                 }
 
                 m3 = new CertificateVerify(protocolVersion, handshakeHash,
@@ -1040,10 +1134,6 @@ final class ClientHandshaker extends Handshaker {
             }
             m3.write(output);
             output.doHashes();
-        } else {
-            if (protocolVersion.v >= ProtocolVersion.TLS12.v) {
-                handshakeHash.setCertificateVerifyAlg(null);
-            }
         }
 
         /*
@@ -1078,6 +1168,13 @@ final class ClientHandshaker extends Handshaker {
          */
         if (secureRenegotiation) {
             serverVerifyData = mesg.getVerifyData();
+        }
+
+        /*
+         * Reset the handshake state if this is not an initial handshake.
+         */
+        if (!isInitialHandshake) {
+            session.setAsSessionResumption(false);
         }
 
         /*
@@ -1151,6 +1248,7 @@ final class ClientHandshaker extends Handshaker {
     /*
      * Returns a ClientHello message to kickstart renegotiations
      */
+    @Override
     HandshakeMessage getKickstartMessage() throws SSLException {
         // session ID of the ClientHello message
         SessionId sessionId = SSLSessionImpl.nullSession.getSessionId();
@@ -1177,8 +1275,23 @@ final class ClientHandshaker extends Handshaker {
                 System.out.println("%% No cached client session");
             }
         }
-        if ((session != null) && (session.isRejoinable() == false)) {
-            session = null;
+        if (session != null) {
+            // If unsafe server certificate change is not allowed, reserve
+            // current server certificates if the previous handshake is a
+            // session-resumption abbreviated initial handshake.
+            if (!allowUnsafeServerCertChange && session.isSessionResumption()) {
+                try {
+                    // If existing, peer certificate chain cannot be null.
+                    reservedServerCerts =
+                        (X509Certificate[])session.getPeerCertificates();
+                } catch (SSLPeerUnverifiedException puve) {
+                    // Maybe not certificate-based, ignore the exception.
+                }
+            }
+
+            if (!session.isRejoinable()) {
+                session = null;
+            }
         }
 
         if (session != null) {
@@ -1295,17 +1408,14 @@ final class ClientHandshaker extends Handshaker {
 
         // add server_name extension
         if (enableSNIExtension) {
-            // We cannot use the hostname resolved from name services.  For
-            // virtual hosting, multiple hostnames may be bound to the same IP
-            // address, so the hostname resolved from name services is not
-            // reliable.
-            String hostname = getRawHostnameSE();
+            if (session != null) {
+                requestedServerNames = session.getRequestedServerNames();
+            } else {
+                requestedServerNames = serverNames;
+            }
 
-            // we only allow FQDN
-            if (hostname != null && hostname.indexOf('.') > 0 &&
-                    !IPAddressUtil.isIPv4LiteralAddress(hostname) &&
-                    !IPAddressUtil.isIPv6LiteralAddress(hostname)) {
-                clientHelloMessage.addServerNameIndicationExtension(hostname);
+            if (!requestedServerNames.isEmpty()) {
+                clientHelloMessage.addSNIExtension(requestedServerNames);
             }
         }
 
@@ -1323,14 +1433,15 @@ final class ClientHandshaker extends Handshaker {
             clientHelloMessage.addRenegotiationInfoExtension(clientVerifyData);
         }
 
-        // BEGIN GRIZZLY NPN
-        // Add the NPN extension to the ClientHello if the ClientSideNegotiator
-        // wants to attempt negotiation.
+        // BEGIN GRIZZLY NPN/ALPN
         if (engine != null) { // ClientHandshaker might have been initialized by SSLSocketImpl
-            ClientSideNegotiator negotiator = NegotiationSupport.getClientSideNegotiator(engine);
-            if (negotiator != null && negotiator.wantNegotiate(engine)) {
-                clientHelloMessage.addNextProtocolNegotiationExtension();
-            }
+            // Add the NPN extension to the ClientHello if the ClientSideNegotiator
+            // wants to attempt negotiation.
+            clientHelloMessage.addNextProtocolNegotiationExtension(engine);
+            
+            // Add the ALPN extension to the ClientHello if the AlpnClientNegotiator
+            // wants to attempt negotiation.
+            clientHelloMessage.addAlpnExtension(engine);
         }
         // END GRIZZLY NPN
 
@@ -1340,6 +1451,7 @@ final class ClientHandshaker extends Handshaker {
     /*
      * Fault detected during handshake.
      */
+    @Override
     void handshakeAlert(byte description) throws SSLProtocolException {
         String message = Alerts.alertDescription(description);
 
@@ -1360,9 +1472,28 @@ final class ClientHandshaker extends Handshaker {
         }
         X509Certificate[] peerCerts = mesg.getCertificateChain();
         if (peerCerts.length == 0) {
-            fatalSE(Alerts.alert_bad_certificate,
-                "empty certificate chain");
+            fatalSE(Alerts.alert_bad_certificate, "empty certificate chain");
         }
+
+        // Allow server certificate change in client side during renegotiation
+        // after a session-resumption abbreviated initial handshake?
+        //
+        // DO NOT need to check allowUnsafeServerCertChange here. We only
+        // reserve server certificates when allowUnsafeServerCertChange is
+        // flase.
+        if (reservedServerCerts != null) {
+            // It is not necessary to check the certificate update if endpoint
+            // identification is enabled.
+            String identityAlg = getEndpointIdentificationAlgorithmSE();
+            if ((identityAlg == null || identityAlg.length() == 0) &&
+                !isIdentityEquivalent(peerCerts[0], reservedServerCerts[0])) {
+
+                fatalSE(Alerts.alert_bad_certificate,
+                        "server certificate change is restricted " +
+                        "during renegotiation");
+            }
+        }
+
         // ask the trust manager to verify the chain
         X509TrustManager tm = sslContext.getX509TrustManager();
         try {
@@ -1398,5 +1529,82 @@ final class ClientHandshaker extends Handshaker {
             fatalSE(Alerts.alert_certificate_unknown, e);
         }
         session.setPeerCertificates(peerCerts);
+    }
+
+    /*
+     * Whether the certificates can represent the same identity?
+     *
+     * The certificates can be used to represent the same identity:
+     *     1. If the subject alternative names of IP address are present in
+     *        both certificates, they should be identical; otherwise,
+     *     2. if the subject alternative names of DNS name are present in
+     *        both certificates, they should be identical; otherwise,
+     *     3. if the subject fields are present in both certificates, the
+     *        certificate subjects and issuers should be identical.
+     */
+    private static boolean isIdentityEquivalent(X509Certificate thisCert,
+            X509Certificate prevCert) {
+        if (thisCert.equals(prevCert)) {
+            return true;
+        }
+
+        // check the iPAddress field in subjectAltName extension
+        Object thisIPAddress = getSubjectAltName(thisCert, 7);  // 7: iPAddress
+        Object prevIPAddress = getSubjectAltName(prevCert, 7);
+        if (thisIPAddress != null && prevIPAddress!= null) {
+            // only allow the exactly match
+            return Objects.equals(thisIPAddress, prevIPAddress);
+        }
+
+        // check the dNSName field in subjectAltName extension
+        Object thisDNSName = getSubjectAltName(thisCert, 2);    // 2: dNSName
+        Object prevDNSName = getSubjectAltName(prevCert, 2);
+        if (thisDNSName != null && prevDNSName!= null) {
+            // only allow the exactly match
+            return Objects.equals(thisDNSName, prevDNSName);
+        }
+
+        // check the certificate subject and issuer
+        X500Principal thisSubject = thisCert.getSubjectX500Principal();
+        X500Principal prevSubject = prevCert.getSubjectX500Principal();
+        X500Principal thisIssuer = thisCert.getIssuerX500Principal();
+        X500Principal prevIssuer = prevCert.getIssuerX500Principal();
+        if (!thisSubject.getName().isEmpty() &&
+                !prevSubject.getName().isEmpty() &&
+                thisSubject.equals(prevSubject) &&
+                thisIssuer.equals(prevIssuer)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /*
+     * Returns the subject alternative name of the specified type in the
+     * subjectAltNames extension of a certificate.
+     */
+    private static Object getSubjectAltName(X509Certificate cert, int type) {
+        Collection<List<?>> subjectAltNames;
+
+        try {
+            subjectAltNames = cert.getSubjectAlternativeNames();
+        } catch (CertificateParsingException cpe) {
+            if (debug != null && Debug.isOn("handshake")) {
+                System.out.println(
+                        "Attempt to obtain subjectAltNames extension failed!");
+            }
+            return null;
+        }
+
+        if (subjectAltNames != null) {
+            for (List<?> subjectAltName : subjectAltNames) {
+                int subjectAltNameType = (Integer)subjectAltName.get(0);
+                if (subjectAltNameType == type) {
+                    return subjectAltName.get(1);
+                }
+            }
+        }
+
+        return null;
     }
 }

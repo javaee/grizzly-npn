@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 1996, 2012, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 1996, 2015, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -40,13 +40,16 @@ import javax.net.ssl.*;
 
 import javax.security.auth.Subject;
 
-import org.glassfish.grizzly.npn.AlpnServerNegotiator;
-import org.glassfish.grizzly.npn.NegotiationSupport;
-import org.glassfish.grizzly.npn.ServerSideNegotiator;
+import sun.security.util.KeyUtil;
+import sun.security.action.GetPropertyAction;
 import sun.security.ssl.HandshakeMessage.*;
 import sun.security.ssl.CipherSuite.*;
 import sun.security.ssl.SignatureAndHashAlgorithm.*;
-import static sun.security.ssl.CipherSuite.*;
+
+import org.glassfish.grizzly.npn.AlpnServerNegotiator;
+import org.glassfish.grizzly.npn.NegotiationSupport;
+import org.glassfish.grizzly.npn.ServerSideNegotiator;
+
 import static sun.security.ssl.CipherSuite.KeyExchange.*;
 
 /**
@@ -66,7 +69,7 @@ final class ServerHandshaker extends Handshaker {
     private X509Certificate[]   certs;
     private PrivateKey          privateKey;
 
-    private SecretKey[]       kerberosKeys;
+    private Object              serviceCreds;
 
     // flag to check for clientCertificateVerify message
     private boolean             needClientVerify = false;
@@ -96,6 +99,50 @@ final class ServerHandshaker extends Handshaker {
 
     // the preferable signature algorithm used by ServerKeyExchange message
     SignatureAndHashAlgorithm preferableSignatureAlgorithm;
+
+    // Flag to use smart ephemeral DH key which size matches the corresponding
+    // authentication key
+    private static final boolean useSmartEphemeralDHKeys;
+
+    // Flag to use legacy ephemeral DH key which size is 512 bits for
+    // exportable cipher suites, and 768 bits for others
+    private static final boolean useLegacyEphemeralDHKeys;
+
+    // The customized ephemeral DH key size for non-exportable cipher suites.
+    private static final int customizedDHKeySize;
+
+    static {
+        String property = AccessController.doPrivileged(
+                    new GetPropertyAction("jdk.tls.ephemeralDHKeySize"));
+        if (property == null || property.length() == 0) {
+            useLegacyEphemeralDHKeys = false;
+            useSmartEphemeralDHKeys = false;
+            customizedDHKeySize = -1;
+        } else if ("matched".equals(property)) {
+            useLegacyEphemeralDHKeys = false;
+            useSmartEphemeralDHKeys = true;
+            customizedDHKeySize = -1;
+        } else if ("legacy".equals(property)) {
+            useLegacyEphemeralDHKeys = true;
+            useSmartEphemeralDHKeys = false;
+            customizedDHKeySize = -1;
+        } else {
+            useLegacyEphemeralDHKeys = false;
+            useSmartEphemeralDHKeys = false;
+
+            try {
+                customizedDHKeySize = Integer.parseUnsignedInt(property);
+                if (customizedDHKeySize < 1024 || customizedDHKeySize > 2048) {
+                    throw new IllegalArgumentException(
+                        "Customized DH key size should be positive integer " +
+                        "between 1024 and 2048 bits, inclusive");
+                }
+            } catch (NumberFormatException nfe) {
+                throw new IllegalArgumentException(
+                        "Invalid system property jdk.tls.ephemeralDHKeySize");
+            }
+        }
+    }
 
     /*
      * Constructor ... use the keys found in the auth context.
@@ -147,6 +194,7 @@ final class ServerHandshaker extends Handshaker {
      * It updates the state machine as each message is processed, and writes
      * responses as needed using the connection in the constructor.
      */
+    @Override
     void processMessage(byte type, int message_len)
             throws IOException {
         //
@@ -203,7 +251,8 @@ final class ServerHandshaker extends Handshaker {
                             clientRequestedVersion,
                             sslContext.getSecureRandom(),
                             input,
-                            kerberosKeys));
+                            this.getAccSE(),
+                            serviceCreds));
                     break;
                 case K_DHE_RSA:
                 case K_DHE_DSS:
@@ -308,6 +357,35 @@ final class ServerHandshaker extends Handshaker {
             mesg.print(System.out);
         }
 
+        // Reject client initiated renegotiation?
+        //
+        // If server side should reject client-initiated renegotiation,
+        // send an alert_handshake_failure fatal alert, not a no_renegotiation
+        // warning alert (no_renegotiation must be a warning: RFC 2246).
+        // no_renegotiation might seem more natural at first, but warnings
+        // are not appropriate because the sending party does not know how
+        // the receiving party will behave.  This state must be treated as
+        // a fatal server condition.
+        //
+        // This will not have any impact on server initiated renegotiation.
+        if (rejectClientInitiatedRenego && !isInitialHandshake &&
+                state != HandshakeMessage.ht_hello_request) {
+            fatalSE(Alerts.alert_handshake_failure,
+                "Client initiated renegotiation is not allowed");
+        }
+
+        // check the server name indication if required
+        ServerNameExtension clientHelloSNIExt = (ServerNameExtension)
+                    mesg.extensions.get(ExtensionType.EXT_SERVER_NAME);
+        if (!sniMatchers.isEmpty()) {
+            // we do not reject client without SNI extension
+            if (clientHelloSNIExt != null &&
+                        !clientHelloSNIExt.isMatched(sniMatchers)) {
+                fatalSE(Alerts.alert_unrecognized_name,
+                    "Unrecognized server name indication");
+            }
+        }
+
         // Does the message include security renegotiation indication?
         boolean renegotiationIndicated = false;
 
@@ -386,7 +464,7 @@ final class ServerHandshaker extends Handshaker {
             } else if (!allowUnsafeRenegotiation) {
                 // abort the handshake
                 if (activeProtocolVersion.v >= ProtocolVersion.TLS10.v) {
-                    // response with a no_renegotiation warning,
+                    // respond with a no_renegotiation warning
                     warningSE(Alerts.alert_no_renegotiation);
 
                     // invalidate the handshake so that the caller can
@@ -544,6 +622,26 @@ final class ServerHandshaker extends Handshaker {
                     }
                 }
 
+                // cannot resume session with different server name indication
+                if (resumingSession) {
+                    List<SNIServerName> oldServerNames =
+                            previous.getRequestedServerNames();
+                    if (clientHelloSNIExt != null) {
+                        if (!clientHelloSNIExt.isIdentical(oldServerNames)) {
+                            resumingSession = false;
+                        }
+                    } else if (!oldServerNames.isEmpty()) {
+                        resumingSession = false;
+                    }
+
+                    if (!resumingSession &&
+                            debug != null && Debug.isOn("handshake")) {
+                        System.out.println(
+                            "The requested server name indication " +
+                            "is not identical to the previous one");
+                    }
+                }
+
                 if (resumingSession &&
                         (doClientAuth == SSLEngineImpl.clauth_required)) {
                     try {
@@ -564,6 +662,7 @@ final class ServerHandshaker extends Handshaker {
                         try {
                             subject = AccessController.doPrivileged(
                                 new PrivilegedExceptionAction<Subject>() {
+                                @Override
                                 public Subject run() throws Exception {
                                     return
                                         Krb5Helper.getServerSubject(getAccSE());
@@ -578,18 +677,15 @@ final class ServerHandshaker extends Handshaker {
 
                         if (subject != null) {
                             // Eliminate dependency on KerberosPrincipal
-                            Set<Principal> principals =
-                                subject.getPrincipals(Principal.class);
-                            if (!principals.contains(localPrincipal)) {
-                                resumingSession = false;
-                                if (debug != null && Debug.isOn("session")) {
-                                    System.out.println("Subject identity" +
-                                                        " is not the same");
-                                }
-                            } else {
+                            if (Krb5Helper.isRelated(subject, localPrincipal)) {
                                 if (debug != null && Debug.isOn("session"))
-                                    System.out.println("Subject identity" +
-                                                        " is same");
+                                    System.out.println("Subject can" +
+                                            " provide creds for princ");
+                            } else {
+                                resumingSession = false;
+                                if (debug != null && Debug.isOn("session"))
+                                    System.out.println("Subject cannot" +
+                                            " provide creds for princ");
                             }
                         } else {
                             resumingSession = false;
@@ -683,6 +779,14 @@ final class ServerHandshaker extends Handshaker {
                     // algorithms in chooseCipherSuite()
             }
 
+            // set the server name indication in the session
+            List<SNIServerName> clientHelloSNI =
+                    Collections.<SNIServerName>emptyList();
+            if (clientHelloSNIExt != null) {
+                clientHelloSNI = clientHelloSNIExt.getServerNames();
+            }
+            session.setRequestedServerNames(clientHelloSNI);
+
             // set the handshake session
             setHandshakeSessionSE(session);
 
@@ -699,9 +803,6 @@ final class ServerHandshaker extends Handshaker {
         }
 
         if (protocolVersion.v >= ProtocolVersion.TLS12.v) {
-            if (resumingSession) {
-                handshakeHash.setCertificateVerifyAlg(null);
-            }
             handshakeHash.setFinishedAlg(cipherSuite.prfAlg.getPRFHashAlg());
         }
 
@@ -724,6 +825,15 @@ final class ServerHandshaker extends Handshaker {
             m1.extensions.add(serverHelloRI);
         }
 
+        if (!sniMatchers.isEmpty() && clientHelloSNIExt != null) {
+            // When resuming a session, the server MUST NOT include a
+            // server_name extension in the server hello.
+            if (!resumingSession) {
+                ServerNameExtension serverHelloSNI = new ServerNameExtension();
+                m1.extensions.add(serverHelloSNI);
+            }
+        }
+        
         // BEGIN GRIZZLY NPN
         if (responseExtension != null) {
             m1.extensions.add(responseExtension);
@@ -916,7 +1026,6 @@ final class ServerHandshaker extends Handshaker {
                     throw new SSLHandshakeException(
                             "No supported signature algorithm");
                 }
-                handshakeHash.restrictCertificateVerifyAlgs(localHashAlgs);
             }
 
             caCerts = sslContext.getX509TrustManager().getAcceptedIssuers();
@@ -927,10 +1036,6 @@ final class ServerHandshaker extends Handshaker {
                 m4.print(System.out);
             }
             m4.write(output);
-        } else {
-            if (protocolVersion.v >= ProtocolVersion.TLS12.v) {
-                handshakeHash.setCertificateVerifyAlg(null);
-            }
         }
 
         /*
@@ -957,8 +1062,18 @@ final class ServerHandshaker extends Handshaker {
      * the cipherSuite and keyExchange variables.
      */
     private void chooseCipherSuite(ClientHello mesg) throws IOException {
-        for (CipherSuite suite : mesg.getCipherSuites().collection()) {
-            if (isNegotiable(suite) == false) {
+        CipherSuiteList prefered;
+        CipherSuiteList proposed;
+        if (preferLocalCipherSuites) {
+            prefered = getActiveCipherSuites();
+            proposed = mesg.getCipherSuites();
+        } else {
+            prefered = mesg.getCipherSuites();
+            proposed = getActiveCipherSuites();
+        }
+
+        for (CipherSuite suite : prefered.collection()) {
+            if (isNegotiable(proposed, suite) == false) {
                 continue;
             }
 
@@ -973,8 +1088,7 @@ final class ServerHandshaker extends Handshaker {
             }
             return;
         }
-        fatalSE(Alerts.alert_handshake_failure,
-                    "no cipher suites in common");
+        fatalSE(Alerts.alert_handshake_failure, "no cipher suites in common");
     }
 
     /**
@@ -1123,7 +1237,7 @@ final class ServerHandshaker extends Handshaker {
                 }
             }
 
-            setupEphemeralDHKeys(suite.exportable);
+            setupEphemeralDHKeys(suite.exportable, privateKey);
             break;
         case K_ECDHE_RSA:
             // need RSA certs for authentication
@@ -1160,7 +1274,8 @@ final class ServerHandshaker extends Handshaker {
             if (setupPrivateKeyAndChain("DSA") == false) {
                 return false;
             }
-            setupEphemeralDHKeys(suite.exportable);
+
+            setupEphemeralDHKeys(suite.exportable, privateKey);
             break;
         case K_ECDHE_ECDSA:
             // get preferable peer signature algorithm for server key exchange
@@ -1204,7 +1319,7 @@ final class ServerHandshaker extends Handshaker {
             break;
         case K_DH_ANON:
             // no certs needed for anonymous
-            setupEphemeralDHKeys(suite.exportable);
+            setupEphemeralDHKeys(suite.exportable, null);
             break;
         case K_ECDH_ANON:
             // no certs needed for anonymous
@@ -1253,15 +1368,70 @@ final class ServerHandshaker extends Handshaker {
      * Acquire some "ephemeral" Diffie-Hellman  keys for this handshake.
      * We don't reuse these, for improved forward secrecy.
      */
-    private void setupEphemeralDHKeys(boolean export) {
+    private void setupEphemeralDHKeys(boolean export, Key key) {
         /*
-         * Diffie-Hellman keys ... we use 768 bit private keys due
-         * to the "use twice as many key bits as bits you want secret"
-         * rule of thumb, assuming we want the same size premaster
-         * secret with Diffie-Hellman and RSA key exchanges.  Except
-         * that exportable ciphers max out at 512 bits modulus values.
+         * 768 bits ephemeral DH private keys were used to be used in
+         * ServerKeyExchange except that exportable ciphers max out at 512
+         * bits modulus values. We still adhere to this behavior in legacy
+         * mode (system property "jdk.tls.ephemeralDHKeySize" is defined
+         * as "legacy").
+         *
+         * Old JDK (JDK 7 and previous) releases don't support DH keys bigger
+         * than 1024 bits. We have to consider the compatibility requirement.
+         * 1024 bits DH key is always used for non-exportable cipher suites
+         * in default mode (system property "jdk.tls.ephemeralDHKeySize"
+         * is not defined).
+         *
+         * However, if applications want more stronger strength, setting
+         * system property "jdk.tls.ephemeralDHKeySize" to "matched"
+         * is a workaround to use ephemeral DH key which size matches the
+         * corresponding authentication key. For example, if the public key
+         * size of an authentication certificate is 2048 bits, then the
+         * ephemeral DH key size should be 2048 bits accordingly unless
+         * the cipher suite is exportable.  This key sizing scheme keeps
+         * the cryptographic strength consistent between authentication
+         * keys and key-exchange keys.
+         *
+         * Applications may also want to customize the ephemeral DH key size
+         * to a fixed length for non-exportable cipher suites. This can be
+         * approached by setting system property "jdk.tls.ephemeralDHKeySize"
+         * to a valid positive integer between 1024 and 2048 bits, inclusive.
+         *
+         * Note that the minimum acceptable key size is 1024 bits except
+         * exportable cipher suites or legacy mode.
+         *
+         * Note that the maximum acceptable key size is 2048 bits because
+         * DH keys bigger than 2048 are not always supported by underlying
+         * JCE providers.
+         *
+         * Note that per RFC 2246, the key size limit of DH is 512 bits for
+         * exportable cipher suites.  Because of the weakness, exportable
+         * cipher suites are deprecated since TLS v1.1 and they are not
+         * enabled by default in Oracle provider. The legacy behavior is
+         * reserved and 512 bits DH key is always used for exportable
+         * cipher suites.
          */
-        dh = new DHCrypt((export ? 512 : 768), sslContext.getSecureRandom());
+        int keySize = export ? 512 : 1024;           // default mode
+        if (!export) {
+            if (useLegacyEphemeralDHKeys) {          // legacy mode
+                keySize = 768;
+            } else if (useSmartEphemeralDHKeys) {    // matched mode
+                if (key != null) {
+                    int ks = KeyUtil.getKeySize(key);
+                    // Note that SunJCE provider only supports 2048 bits DH
+                    // keys bigger than 1024.  Please DON'T use value other
+                    // than 1024 and 2048 at present.  We may improve the
+                    // underlying providers and key size here in the future.
+                    //
+                    // keySize = ks <= 1024 ? 1024 : (ks >= 2048 ? 2048 : ks);
+                    keySize = ks <= 1024 ? 1024 : 2048;
+                } // Otherwise, anonymous cipher suites, 1024-bit is used.
+            } else if (customizedDHKeySize > 0) {    // customized mode
+                keySize = customizedDHKeySize;
+            }
+        }
+
+        dh = new DHCrypt(keySize, sslContext.getSecureRandom());
     }
 
     // Setup the ephemeral ECDH parameters.
@@ -1356,48 +1526,51 @@ final class ServerHandshaker extends Handshaker {
      * @return true if successful, false if not available or invalid
      */
     private boolean setupKerberosKeys() {
-        if (kerberosKeys != null) {
+        if (serviceCreds != null) {
             return true;
         }
         try {
             final AccessControlContext acc = getAccSE();
-            kerberosKeys = AccessController.doPrivileged(
-                // Eliminate dependency on KerberosKey
-                new PrivilegedExceptionAction<SecretKey[]>() {
-                public SecretKey[] run() throws Exception {
-                    // get kerberos key for the default principal
-                    return Krb5Helper.getServerKeys(acc);
+            serviceCreds = AccessController.doPrivileged(
+                    // Eliminate dependency on KerberosKey
+                    new PrivilegedExceptionAction<Object>() {
+                        @Override
+                        public Object run() throws Exception {
+                            // get kerberos key for the default principal
+                            return Krb5Helper.getServiceCreds(acc);
                         }});
 
             // check permission to access and use the secret key of the
             // Kerberized "host" service
-            if (kerberosKeys != null && kerberosKeys.length > 0) {
+            if (serviceCreds != null) {
                 if (debug != null && Debug.isOn("handshake")) {
-                    for (SecretKey k: kerberosKeys) {
-                        System.out.println("Using Kerberos key: " +
-                            k);
+                    System.out.println("Using Kerberos creds");
+                }
+                String serverPrincipal =
+                        Krb5Helper.getServerPrincipalName(serviceCreds);
+                if (serverPrincipal != null) {
+                    // When service is bound, we check ASAP. Otherwise,
+                    // will check after client request is received
+                    // in in Kerberos ClientKeyExchange
+                    SecurityManager sm = System.getSecurityManager();
+                    try {
+                        if (sm != null) {
+                            // Eliminate dependency on ServicePermission
+                            sm.checkPermission(Krb5Helper.getServicePermission(
+                                    serverPrincipal, "accept"), acc);
+                        }
+                    } catch (SecurityException se) {
+                        serviceCreds = null;
+                        // Do not destroy keys. Will affect Subject
+                        if (debug != null && Debug.isOn("handshake")) {
+                            System.out.println("Permission to access Kerberos"
+                                    + " secret key denied");
+                        }
+                        return false;
                     }
                 }
-
-                String serverPrincipal =
-                    Krb5Helper.getServerPrincipalName(kerberosKeys[0]);
-                SecurityManager sm = System.getSecurityManager();
-                try {
-                   if (sm != null) {
-                      // Eliminate dependency on ServicePermission
-                      sm.checkPermission(Krb5Helper.getServicePermission(
-                          serverPrincipal, "accept"), acc);
-                   }
-                } catch (SecurityException se) {
-                   kerberosKeys = null;
-                   // %%% destroy keys? or will that affect Subject?
-                   if (debug != null && Debug.isOn("handshake"))
-                      System.out.println("Permission to access Kerberos"
-                                + " secret key denied");
-                   return false;
-                }
             }
-            return (kerberosKeys != null && kerberosKeys.length > 0);
+            return serviceCreds != null;
         } catch (PrivilegedActionException e) {
             // Likely exception here is LoginExceptin
             if (debug != null && Debug.isOn("handshake")) {
@@ -1489,8 +1662,6 @@ final class ServerHandshaker extends Handshaker {
                 throw new SSLHandshakeException(
                         "No supported hash algorithm");
             }
-
-            handshakeHash.setCertificateVerifyAlg(hashAlg);
         }
 
         try {
@@ -1635,6 +1806,7 @@ final class ServerHandshaker extends Handshaker {
     /*
      * Returns a HelloRequest message to kickstart renegotiations
      */
+    @Override
     HandshakeMessage getKickstartMessage() {
         return new HelloRequest();
     }
@@ -1643,6 +1815,7 @@ final class ServerHandshaker extends Handshaker {
     /*
      * Fault detected during handshake.
      */
+    @Override
     void handshakeAlert(byte description) throws SSLProtocolException {
 
         String message = Alerts.alertDescription(description);
@@ -1703,11 +1876,6 @@ final class ServerHandshaker extends Handshaker {
              * not *REQUIRED*, this is an acceptable condition.)
              */
             if (doClientAuth == SSLEngineImpl.clauth_requested) {
-                // Smart (aka stupid) to forecast that no CertificateVerify
-                // message will be received.
-                if (protocolVersion.v >= ProtocolVersion.TLS12.v) {
-                    handshakeHash.setCertificateVerifyAlg(null);
-                }
                 return;
             } else {
                 fatalSE(Alerts.alert_bad_certificate,

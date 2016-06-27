@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2003, 2015, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2003, 2014, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -212,6 +212,11 @@ final public class SSLEngineImpl extends SSLEngine {
     static final byte           clauth_required = 2;
 
     /*
+     * Flag indicating that the engine has received a ChangeCipherSpec message.
+     */
+    private boolean             receivedCCS;
+
+    /*
      * Flag indicating if the next record we receive MUST be a Finished
      * message. Temporarily set during the handshake to ensure that
      * a change cipher spec message is followed by a finished message.
@@ -255,9 +260,9 @@ final public class SSLEngineImpl extends SSLEngine {
 
     // The server name indication and matchers
     List<SNIServerName>         serverNames =
-                                    Collections.<SNIServerName>emptyList();
+            Collections.<SNIServerName>emptyList();
     Collection<SNIMatcher>      sniMatchers =
-                                    Collections.<SNIMatcher>emptyList();
+            Collections.<SNIMatcher>emptyList();
 
     // Have we been told whether we're client or server?
     private boolean                     serverModeSet = false;
@@ -372,10 +377,11 @@ final public class SSLEngineImpl extends SSLEngine {
          */
         roleIsServer = true;
         connectionState = cs_START;
+        receivedCCS = false;
 
         // default server name indication
         serverNames =
-            Utilities.addToSNIServerNameList(serverNames, getPeerHost());
+                Utilities.addToSNIServerNameList(serverNames, getPeerHost());
 
         /*
          * default read and write side cipher and MAC support
@@ -416,7 +422,7 @@ final public class SSLEngineImpl extends SSLEngine {
          * input record.
          */
         outputRecord =
-            new EngineOutputRecord(Record.ct_application_data, this);
+                new EngineOutputRecord(Record.ct_application_data, this);
         inputRecord = new EngineInputRecord(this);
         inputRecord.enableFormatChecks();
 
@@ -442,26 +448,26 @@ final public class SSLEngineImpl extends SSLEngine {
     private void initHandshaker() {
         switch (connectionState) {
 
-        //
-        // Starting a new handshake.
-        //
-        case cs_START:
-        case cs_DATA:
-            break;
+            //
+            // Starting a new handshake.
+            //
+            case cs_START:
+            case cs_DATA:
+                break;
 
-        //
-        // We're already in the middle of a handshake.
-        //
-        case cs_HANDSHAKE:
-        case cs_RENEGOTIATE:
-            return;
+            //
+            // We're already in the middle of a handshake.
+            //
+            case cs_HANDSHAKE:
+            case cs_RENEGOTIATE:
+                return;
 
-        //
-        // Anyone allowed to call this routine is required to
-        // do so ONLY if the connection state is reasonable...
-        //
-        default:
-            throw new IllegalStateException("Internal error");
+            //
+            // Anyone allowed to call this routine is required to
+            // do so ONLY if the connection state is reasonable...
+            //
+            default:
+                throw new IllegalStateException("Internal error");
         }
 
         // state is either cs_START or cs_DATA
@@ -584,7 +590,7 @@ final public class SSLEngineImpl extends SSLEngine {
         if (connectionState != cs_HANDSHAKE
                 && connectionState != cs_RENEGOTIATE) {
             throw new SSLProtocolException(
-                "State error, change cipher specs");
+                    "State error, change cipher specs");
         }
 
         // ... create decompressor
@@ -620,7 +626,7 @@ final public class SSLEngineImpl extends SSLEngine {
         if (connectionState != cs_HANDSHAKE
                 && connectionState != cs_RENEGOTIATE) {
             throw new SSLProtocolException(
-                "State error, change cipher specs");
+                    "State error, change cipher specs");
         }
 
         // ... create compressor
@@ -669,42 +675,42 @@ final public class SSLEngineImpl extends SSLEngine {
     private synchronized void kickstartHandshake() throws IOException {
         switch (connectionState) {
 
-        case cs_START:
-            if (!serverModeSet) {
-                throw new IllegalStateException(
-                    "Client/Server mode not yet set.");
-            }
-            initHandshaker();
-            break;
-
-        case cs_HANDSHAKE:
-            // handshaker already setup, proceed
-            break;
-
-        case cs_DATA:
-            if (!secureRenegotiation && !Handshaker.allowUnsafeRenegotiation) {
-                throw new SSLHandshakeException(
-                        "Insecure renegotiation is not allowed");
-            }
-
-            if (!secureRenegotiation) {
-                if (debug != null && Debug.isOn("handshake")) {
-                    System.out.println(
-                        "Warning: Using insecure renegotiation");
+            case cs_START:
+                if (!serverModeSet) {
+                    throw new IllegalStateException(
+                            "Client/Server mode not yet set.");
                 }
-            }
+                initHandshaker();
+                break;
 
-            // initialize the handshaker, move to cs_RENEGOTIATE
-            initHandshaker();
-            break;
+            case cs_HANDSHAKE:
+                // handshaker already setup, proceed
+                break;
 
-        case cs_RENEGOTIATE:
-            // handshaking already in progress, return
-            return;
+            case cs_DATA:
+                if (!secureRenegotiation && !Handshaker.allowUnsafeRenegotiation) {
+                    throw new SSLHandshakeException(
+                            "Insecure renegotiation is not allowed");
+                }
 
-        default:
-            // cs_ERROR/cs_CLOSED
-            throw new SSLException("SSLEngine is closing/closed");
+                if (!secureRenegotiation) {
+                    if (debug != null && Debug.isOn("handshake")) {
+                        System.out.println(
+                                "Warning: Using insecure renegotiation");
+                    }
+                }
+
+                // initialize the handshaker, move to cs_RENEGOTIATE
+                initHandshaker();
+                break;
+
+            case cs_RENEGOTIATE:
+                // handshaking already in progress, return
+                return;
+
+            default:
+                // cs_ERROR/cs_CLOSED
+                throw new SSLException("SSLEngine is closing/closed");
         }
 
         //
@@ -715,7 +721,7 @@ final public class SSLEngineImpl extends SSLEngine {
         // SSLSocketImpl.writeRecord() to send it.
         //
         if (!handshaker.activated()) {
-             // prior to handshaking, activate the handshake
+            // prior to handshaking, activate the handshake
             if (connectionState == cs_RENEGOTIATE) {
                 // don't use SSLv2Hello when renegotiating
                 handshaker.activate(protocolVersion);
@@ -750,7 +756,7 @@ final public class SSLEngineImpl extends SSLEngine {
             kickstartHandshake();
         } catch (Exception e) {
             fatal(Alerts.alert_handshake_failure,
-                "Couldn't kickstart handshaking", e);
+                    "Couldn't kickstart handshaking", e);
         }
     }
 
@@ -766,7 +772,7 @@ final public class SSLEngineImpl extends SSLEngine {
      */
     @Override
     public SSLEngineResult unwrap(ByteBuffer netData, ByteBuffer [] appData,
-            int offset, int length) throws SSLException {
+                                  int offset, int length) throws SSLException {
 
         EngineArgs ea = new EngineArgs(netData, appData, offset, length);
 
@@ -782,7 +788,7 @@ final public class SSLEngineImpl extends SSLEngine {
              * Our days of consuming are now over anyway.
              */
             fatal(Alerts.alert_internal_error,
-                "problem unwrapping net record", e);
+                    "problem unwrapping net record", e);
             return null;  // make compiler happy
         } finally {
             /*
@@ -852,7 +858,7 @@ final public class SSLEngineImpl extends SSLEngine {
          */
         if (hsStatus == HandshakeStatus.NEED_TASK) {
             return new SSLEngineResult(
-                Status.OK, hsStatus, 0, 0);
+                    Status.OK, hsStatus, 0, 0);
         }
 
         /*
@@ -865,9 +871,9 @@ final public class SSLEngineImpl extends SSLEngine {
         if (packetLen > sess.getPacketBufferSize()) {
             if (packetLen > Record.maxLargeRecordSize) {
                 throw new SSLProtocolException(
-                    "Input SSL/TLS record too big: max = " +
-                    Record.maxLargeRecordSize +
-                    " len = " + packetLen);
+                        "Input SSL/TLS record too big: max = " +
+                                Record.maxLargeRecordSize +
+                                " len = " + packetLen);
             } else {
                 // Expand the expected maximum packet/application buffer
                 // sizes.
@@ -888,7 +894,7 @@ final public class SSLEngineImpl extends SSLEngine {
         // check for UNDERFLOW.
         if ((packetLen == -1) || (ea.netData.remaining() < packetLen)) {
             return new SSLEngineResult(
-                Status.BUFFER_UNDERFLOW, hsStatus, 0, 0);
+                    Status.BUFFER_UNDERFLOW, hsStatus, 0, 0);
         }
 
         /*
@@ -919,7 +925,7 @@ final public class SSLEngineImpl extends SSLEngine {
         hsStatus = getHSStatus(hsStatus);
 
         return new SSLEngineResult(status, hsStatus,
-            ea.deltaNet(), ea.deltaApp());
+                ea.deltaNet(), ea.deltaApp());
     }
 
     /*
@@ -966,10 +972,10 @@ final public class SSLEngineImpl extends SSLEngine {
              */
             try {
                 decryptedBB = inputRecord.decrypt(
-                                    readAuthenticator, readCipher, readBB);
+                        readAuthenticator, readCipher, readBB);
             } catch (BadPaddingException e) {
                 byte alertType = (inputRecord.contentType() ==
-                    Record.ct_handshake) ?
+                        Record.ct_handshake) ?
                         Alerts.alert_handshake_failure :
                         Alerts.alert_bad_record_mac;
                 fatal(alertType, e.getMessage(), e);
@@ -986,7 +992,7 @@ final public class SSLEngineImpl extends SSLEngine {
 
             synchronized (this) {
                 switch (inputRecord.contentType()) {
-                case Record.ct_handshake:
+                    case Record.ct_handshake:
                     /*
                      * Handshake messages always go to a pending session
                      * handshaker ... if there isn't one, create one.  This
@@ -998,16 +1004,16 @@ final public class SSLEngineImpl extends SSLEngine {
                      * session (new keys exchanged) with just this connection
                      * in it.
                      */
-                    initHandshaker();
-                    if (!handshaker.activated()) {
-                        // prior to handshaking, activate the handshake
-                        if (connectionState == cs_RENEGOTIATE) {
-                            // don't use SSLv2Hello when renegotiating
-                            handshaker.activate(protocolVersion);
-                        } else {
-                            handshaker.activate(null);
+                        initHandshaker();
+                        if (!handshaker.activated()) {
+                            // prior to handshaking, activate the handshake
+                            if (connectionState == cs_RENEGOTIATE) {
+                                // don't use SSLv2Hello when renegotiating
+                                handshaker.activate(protocolVersion);
+                            } else {
+                                handshaker.activate(null);
+                            }
                         }
-                    }
 
                     /*
                      * process the handshake record ... may contain just
@@ -1016,103 +1022,117 @@ final public class SSLEngineImpl extends SSLEngine {
                      * The handshaker state machine will ensure that it's
                      * a finished message.
                      */
-                    handshaker.process_record(inputRecord, expectingFinished);
-                    // BEGIN GRIZZLY NPN
-                    // Don't touch the flag unless the handshaker has
-                    // been invalidated or the handshake is done.
-                    if (handshaker.invalidated || handshaker.isDone()) {
-                        expectingFinished = false;
-                    }
-                    // END GRIZZLY NPN
+                        handshaker.process_record(inputRecord, expectingFinished);
+                        // BEGIN GRIZZLY NPN
+                        // Don't touch the flag unless the handshaker has
+                        // been invalidated or the handshake is done.
+                        if (handshaker.invalidated || handshaker.isDone()) {
+                            expectingFinished = false;
+                        }
+                        // END GRIZZLY NPN
 
-                    if (handshaker.invalidated) {
-                        handshaker = null;
-                        // if state is cs_RENEGOTIATE, revert it to cs_DATA
-                        if (connectionState == cs_RENEGOTIATE) {
+                        if (handshaker.invalidated) {
+                            handshaker = null;
+                            receivedCCS = false;
+                            // if state is cs_RENEGOTIATE, revert it to cs_DATA
+                            if (connectionState == cs_RENEGOTIATE) {
+                                connectionState = cs_DATA;
+                            }
+                        } else if (handshaker.isDone()) {
+                            // reset the parameters for secure renegotiation.
+                            secureRenegotiation =
+                                    handshaker.isSecureRenegotiation();
+                            clientVerifyData = handshaker.getClientVerifyData();
+                            serverVerifyData = handshaker.getServerVerifyData();
+
+                            sess = handshaker.getSession();
+                            handshakeSession = null;
+                            if (!writer.hasOutboundData()) {
+                                hsStatus = HandshakeStatus.FINISHED;
+                            }
+                            handshaker = null;
                             connectionState = cs_DATA;
+                            receivedCCS = false;
+
+                            // No handshakeListeners here.  That's a
+                            // SSLSocket thing.
+                        } else if (handshaker.taskOutstanding()) {
+                            hsStatus = HandshakeStatus.NEED_TASK;
                         }
-                    } else if (handshaker.isDone()) {
-                        // reset the parameters for secure renegotiation.
-                        secureRenegotiation =
-                                        handshaker.isSecureRenegotiation();
-                        clientVerifyData = handshaker.getClientVerifyData();
-                        serverVerifyData = handshaker.getServerVerifyData();
+                        break;
 
-                        sess = handshaker.getSession();
-                        handshakeSession = null;
-                        if (!writer.hasOutboundData()) {
-                            hsStatus = HandshakeStatus.FINISHED;
+                    case Record.ct_application_data:
+                        // Pass this right back up to the application.
+                        if ((connectionState != cs_DATA)
+                                && (connectionState != cs_RENEGOTIATE)
+                                && (connectionState != cs_CLOSED)) {
+                            throw new SSLProtocolException(
+                                    "Data received in non-data state: " +
+                                            connectionState);
                         }
-                        handshaker = null;
-                        connectionState = cs_DATA;
 
-                        // No handshakeListeners here.  That's a
-                        // SSLSocket thing.
-                    } else if (handshaker.taskOutstanding()) {
-                        hsStatus = HandshakeStatus.NEED_TASK;
-                    }
-                    break;
-
-                case Record.ct_application_data:
-                    // Pass this right back up to the application.
-                    if ((connectionState != cs_DATA)
-                            && (connectionState != cs_RENEGOTIATE)
-                            && (connectionState != cs_CLOSED)) {
-                        throw new SSLProtocolException(
-                            "Data received in non-data state: " +
-                            connectionState);
-                    }
-
-                    if (expectingFinished) {
-                        throw new SSLProtocolException
-                                ("Expecting finished message, received data");
-                    }
+                        if (expectingFinished) {
+                            throw new SSLProtocolException
+                                    ("Expecting finished message, received data");
+                        }
 
                     /*
                      * Don't return data once the inbound side is
                      * closed.
                      */
-                    if (!inboundDone) {
-                        ea.scatter(decryptedBB.slice());
-                    }
-                    break;
+                        if (!inboundDone) {
+                            ea.scatter(decryptedBB.slice());
+                        }
+                        break;
 
-                case Record.ct_alert:
-                    recvAlert();
-                    break;
+                    case Record.ct_alert:
+                        recvAlert();
+                        break;
 
-                case Record.ct_change_cipher_spec:
-                    if ((connectionState != cs_HANDSHAKE
+                    case Record.ct_change_cipher_spec:
+                        if ((connectionState != cs_HANDSHAKE
                                 && connectionState != cs_RENEGOTIATE)
-                            || inputRecord.available() != 1
-                            || inputRecord.read() != 1) {
-                        fatal(Alerts.alert_unexpected_message,
-                            "illegal change cipher spec msg, state = "
-                            + connectionState);
-                    }
+                                || !handshaker.sessionKeysCalculated()
+                                || receivedCCS) {
+                            // For the CCS message arriving in the wrong state
+                            fatal(Alerts.alert_unexpected_message,
+                                    "illegal change cipher spec msg, conn state = "
+                                            + connectionState + ", handshake state = "
+                                            + handshaker.state);
+                        } else if (inputRecord.available() != 1
+                                || inputRecord.read() != 1) {
+                            // For structural/content issues with the CCS
+                            fatal(Alerts.alert_unexpected_message,
+                                    "Malformed change cipher spec msg");
+                        }
 
-                    //
-                    // The first message after a change_cipher_spec
-                    // record MUST be a "Finished" handshake record,
-                    // else it's a protocol violation.  We force this
-                    // to be checked by a minor tweak to the state
-                    // machine.
-                    //
-                    changeReadCiphers();
-                    // next message MUST be a finished message
-                    expectingFinished = true;
-                    break;
+                        // Once we've received CCS, update the flag.
+                        // If the remote endpoint sends it again in this handshake
+                        // we won't process it.
+                        receivedCCS = true;
 
-                default:
-                    //
-                    // TLS requires that unrecognized records be ignored.
-                    //
-                    if (debug != null && Debug.isOn("ssl")) {
-                        System.out.println(Thread.currentThread().getName() +
-                            ", Received record type: "
-                            + inputRecord.contentType());
-                    }
-                    break;
+                        //
+                        // The first message after a change_cipher_spec
+                        // record MUST be a "Finished" handshake record,
+                        // else it's a protocol violation.  We force this
+                        // to be checked by a minor tweak to the state
+                        // machine.
+                        //
+                        changeReadCiphers();
+                        // next message MUST be a finished message
+                        expectingFinished = true;
+                        break;
+
+                    default:
+                        //
+                        // TLS requires that unrecognized records be ignored.
+                        //
+                        if (debug != null && Debug.isOn("ssl")) {
+                            System.out.println(Thread.currentThread().getName() +
+                                    ", Received record type: "
+                                    + inputRecord.contentType());
+                        }
+                        break;
                 } // switch
 
                 /*
@@ -1153,7 +1173,7 @@ final public class SSLEngineImpl extends SSLEngine {
      */
     @Override
     public SSLEngineResult wrap(ByteBuffer [] appData,
-            int offset, int length, ByteBuffer netData) throws SSLException {
+                                int offset, int length, ByteBuffer netData) throws SSLException {
 
         EngineArgs ea = new EngineArgs(appData, offset, length, netData);
 
@@ -1164,7 +1184,7 @@ final public class SSLEngineImpl extends SSLEngine {
          */
         if (netData.remaining() < EngineOutputRecord.maxRecordSize) {
             return new SSLEngineResult(
-                Status.BUFFER_OVERFLOW, getHSStatus(null), 0, 0);
+                    Status.BUFFER_OVERFLOW, getHSStatus(null), 0, 0);
         }
 
         try {
@@ -1175,7 +1195,7 @@ final public class SSLEngineImpl extends SSLEngine {
             ea.resetPos();
 
             fatal(Alerts.alert_internal_error,
-                "problem wrapping app data", e);
+                    "problem wrapping app data", e);
             return null;  // make compiler happy
         } finally {
             /*
@@ -1245,7 +1265,7 @@ final public class SSLEngineImpl extends SSLEngine {
          */
         if (hsStatus == HandshakeStatus.NEED_TASK) {
             return new SSLEngineResult(
-                Status.OK, hsStatus, 0, 0);
+                    Status.OK, hsStatus, 0, 0);
         }
 
         /*
@@ -1272,14 +1292,14 @@ final public class SSLEngineImpl extends SSLEngine {
         hsStatus = getHSStatus(hsStatus);
 
         return new SSLEngineResult(status, hsStatus,
-            ea.deltaApp(), ea.deltaNet());
+                ea.deltaApp(), ea.deltaNet());
     }
 
     /*
      * Central point to write/get all of the outgoing data.
      */
     private HandshakeStatus writeRecord(EngineOutputRecord eor,
-            EngineArgs ea) throws IOException {
+                                        EngineArgs ea) throws IOException {
 
         // eventually compress as well.
         HandshakeStatus hsStatus =
@@ -1394,8 +1414,8 @@ final public class SSLEngineImpl extends SSLEngine {
              */
             if (debug != null && Debug.isOn("ssl")) {
                 System.out.println(Thread.currentThread().getName() +
-                    ", sequence number extremely close to overflow " +
-                    "(2^64-1 packets). Closing connection.");
+                        ", sequence number extremely close to overflow " +
+                        "(2^64-1 packets). Closing connection.");
             }
 
             fatal(Alerts.alert_handshake_failure, "sequence number overflow");
@@ -1431,7 +1451,7 @@ final public class SSLEngineImpl extends SSLEngine {
 
         if ((debug != null) && Debug.isOn("ssl")) {
             System.out.println(Thread.currentThread().getName() +
-                                    ", closeOutboundInternal()");
+                    ", closeOutboundInternal()");
         }
 
         /*
@@ -1446,25 +1466,25 @@ final public class SSLEngineImpl extends SSLEngine {
         /*
          * If we haven't even started yet, don't bother reading inbound.
          */
-        case cs_START:
-            writer.closeOutbound();
-            inboundDone = true;
-            break;
+            case cs_START:
+                writer.closeOutbound();
+                inboundDone = true;
+                break;
 
-        case cs_ERROR:
-        case cs_CLOSED:
-            break;
+            case cs_ERROR:
+            case cs_CLOSED:
+                break;
 
         /*
          * Otherwise we indicate clean termination.
          */
-        // case cs_HANDSHAKE:
-        // case cs_DATA:
-        // case cs_RENEGOTIATE:
-        default:
-            warning(Alerts.alert_close_notify);
-            writer.closeOutbound();
-            break;
+            // case cs_HANDSHAKE:
+            // case cs_DATA:
+            // case cs_RENEGOTIATE:
+            default:
+                warning(Alerts.alert_close_notify);
+                writer.closeOutbound();
+                break;
         }
 
         // See comment in changeReadCiphers()
@@ -1480,7 +1500,7 @@ final public class SSLEngineImpl extends SSLEngine {
          */
         if ((debug != null) && Debug.isOn("ssl")) {
             System.out.println(Thread.currentThread().getName() +
-                                    ", called closeOutbound()");
+                    ", called closeOutbound()");
         }
 
         closeOutboundInternal();
@@ -1502,7 +1522,7 @@ final public class SSLEngineImpl extends SSLEngine {
 
         if ((debug != null) && Debug.isOn("ssl")) {
             System.out.println(Thread.currentThread().getName() +
-                                    ", closeInboundInternal()");
+                    ", closeInboundInternal()");
         }
 
         /*
@@ -1536,7 +1556,7 @@ final public class SSLEngineImpl extends SSLEngine {
          */
         if ((debug != null) && Debug.isOn("ssl")) {
             System.out.println(Thread.currentThread().getName() +
-                                    ", called closeInbound()");
+                    ", called closeInbound()");
         }
 
         /*
@@ -1545,8 +1565,8 @@ final public class SSLEngineImpl extends SSLEngine {
         if ((connectionState != cs_START) && !recvCN) {
             recvCN = true;  // Only receive the Exception once
             fatal(Alerts.alert_internal_error,
-                "Inbound closed before receiving peer's close_notify: " +
-                "possible truncation attack?");
+                    "Inbound closed before receiving peer's close_notify: " +
+                            "possible truncation attack?");
         } else {
             /*
              * Currently, this is a no-op, but in case we change
@@ -1639,7 +1659,7 @@ final public class SSLEngineImpl extends SSLEngine {
      * deal with Errors either.
      */
     synchronized void fatal(byte description, String diagnostic,
-            Throwable cause) throws SSLException {
+                            Throwable cause) throws SSLException {
 
         /*
          * If we have no further information, make a general-purpose
@@ -1663,8 +1683,8 @@ final public class SSLEngineImpl extends SSLEngine {
         if (closeReason != null) {
             if ((debug != null) && Debug.isOn("ssl")) {
                 System.out.println(Thread.currentThread().getName() +
-                    ", fatal: engine already closed.  Rethrowing " +
-                    cause.toString());
+                        ", fatal: engine already closed.  Rethrowing " +
+                        cause.toString());
             }
             if (cause instanceof RuntimeException) {
                 throw (RuntimeException)cause;
@@ -1677,8 +1697,8 @@ final public class SSLEngineImpl extends SSLEngine {
 
         if ((debug != null) && Debug.isOn("ssl")) {
             System.out.println(Thread.currentThread().getName()
-                        + ", fatal error: " + description +
-                        ": " + diagnostic + "\n" + cause.toString());
+                    + ", fatal error: " + description +
+                    ": " + diagnostic + "\n" + cause.toString());
         }
 
         /*
@@ -1711,7 +1731,7 @@ final public class SSLEngineImpl extends SSLEngine {
              * except for null checks.
              */
             closeReason =
-                Alerts.getSSLException(description, cause, diagnostic);
+                    Alerts.getSSLException(description, cause, diagnostic);
         }
 
         writer.closeOutbound();
@@ -1760,7 +1780,7 @@ final public class SSLEngineImpl extends SSLEngine {
             if (description == Alerts.alert_close_notify) {
                 if (connectionState == cs_HANDSHAKE) {
                     fatal(Alerts.alert_unexpected_message,
-                                "Received close_notify during handshake");
+                            "Received close_notify during handshake");
                 } else {
                     recvCN = true;
                     closeInboundInternal();  // reply to close
@@ -1779,7 +1799,7 @@ final public class SSLEngineImpl extends SSLEngine {
             }
         } else { // fatal or unknown level
             String reason = "Received fatal alert: "
-                + Alerts.alertDescription(description);
+                    + Alerts.alertDescription(description);
             if (closeReason == null) {
                 closeReason = Alerts.getSSLException(description, reason);
             }
@@ -1800,7 +1820,7 @@ final public class SSLEngineImpl extends SSLEngine {
         // For initial handshaking, don't send alert message to peer if
         // handshaker has not started.
         if (connectionState == cs_HANDSHAKE &&
-            (handshaker == null || !handshaker.started())) {
+                (handshaker == null || !handshaker.started())) {
             return;
         }
 
@@ -1831,7 +1851,7 @@ final public class SSLEngineImpl extends SSLEngine {
         } catch (IOException e) {
             if (useDebug) {
                 System.out.println(Thread.currentThread().getName() +
-                    ", Exception sending alert: " + e);
+                        ", Exception sending alert: " + e);
             }
         }
     }
@@ -1880,7 +1900,7 @@ final public class SSLEngineImpl extends SSLEngine {
     @Override
     synchronized public void setNeedClientAuth(boolean flag) {
         doClientAuth = (flag ?
-            SSLEngineImpl.clauth_required : SSLEngineImpl.clauth_none);
+                SSLEngineImpl.clauth_required : SSLEngineImpl.clauth_none);
 
         if ((handshaker != null) &&
                 (handshaker instanceof ServerHandshaker) &&
@@ -1905,7 +1925,7 @@ final public class SSLEngineImpl extends SSLEngine {
     @Override
     synchronized public void setWantClientAuth(boolean flag) {
         doClientAuth = (flag ?
-            SSLEngineImpl.clauth_requested : SSLEngineImpl.clauth_none);
+                SSLEngineImpl.clauth_requested : SSLEngineImpl.clauth_none);
 
         if ((handshaker != null) &&
                 (handshaker instanceof ServerHandshaker) &&
@@ -1930,22 +1950,22 @@ final public class SSLEngineImpl extends SSLEngine {
     synchronized public void setUseClientMode(boolean flag) {
         switch (connectionState) {
 
-        case cs_START:
+            case cs_START:
             /*
              * If we need to change the engine mode and the enabled
              * protocols haven't specifically been set by the user,
              * change them to the corresponding default ones.
              */
-            if (roleIsServer != (!flag) &&
-                    sslContext.isDefaultProtocolList(enabledProtocols)) {
-                enabledProtocols = sslContext.getDefaultProtocolList(!flag);
-            }
+                if (roleIsServer != (!flag) &&
+                        sslContext.isDefaultProtocolList(enabledProtocols)) {
+                    enabledProtocols = sslContext.getDefaultProtocolList(!flag);
+                }
 
-            roleIsServer = !flag;
-            serverModeSet = true;
-            break;
+                roleIsServer = !flag;
+                serverModeSet = true;
+                break;
 
-        case cs_HANDSHAKE:
+            case cs_HANDSHAKE:
             /*
              * If we have a handshaker, but haven't started
              * SSL traffic, we can throw away our current
@@ -1953,39 +1973,39 @@ final public class SSLEngineImpl extends SSLEngine {
              * need to call doneConnect() again, we already
              * have the streams.
              */
-            assert(handshaker != null);
-            if (!handshaker.activated()) {
+                assert(handshaker != null);
+                if (!handshaker.activated()) {
                 /*
                  * If we need to change the engine mode and the enabled
                  * protocols haven't specifically been set by the user,
                  * change them to the corresponding default ones.
                  */
-                if (roleIsServer != (!flag) &&
-                        sslContext.isDefaultProtocolList(enabledProtocols)) {
-                    enabledProtocols = sslContext.getDefaultProtocolList(!flag);
+                    if (roleIsServer != (!flag) &&
+                            sslContext.isDefaultProtocolList(enabledProtocols)) {
+                        enabledProtocols = sslContext.getDefaultProtocolList(!flag);
+                    }
+
+                    roleIsServer = !flag;
+                    connectionState = cs_START;
+                    initHandshaker();
+                    break;
                 }
 
-                roleIsServer = !flag;
-                connectionState = cs_START;
-                initHandshaker();
-                break;
-            }
+                // If handshake has started, that's an error.  Fall through...
 
-            // If handshake has started, that's an error.  Fall through...
-
-        default:
-            if (debug != null && Debug.isOn("ssl")) {
-                System.out.println(Thread.currentThread().getName() +
-                    ", setUseClientMode() invoked in state = " +
-                    connectionState);
-            }
+            default:
+                if (debug != null && Debug.isOn("ssl")) {
+                    System.out.println(Thread.currentThread().getName() +
+                            ", setUseClientMode() invoked in state = " +
+                            connectionState);
+                }
 
             /*
              * We can let them continue if they catch this correctly,
              * we don't need to shut this down.
              */
-            throw new IllegalArgumentException(
-                "Cannot change mode after SSL traffic has started");
+                throw new IllegalArgumentException(
+                        "Cannot change mode after SSL traffic has started");
         }
     }
 
@@ -2122,8 +2142,16 @@ final public class SSLEngineImpl extends SSLEngine {
                 handshaker.setUseCipherSuitesOrder(preferLocalCipherSuites);
             } else {
                 handshaker.setSNIServerNames(serverNames);
+            }
         }
     }
+
+    /*
+     * Returns a boolean indicating whether the ChangeCipherSpec message
+     * has been received for this handshake.
+     */
+    boolean receivedChangeCipherSpec() {
+        return receivedCCS;
     }
 
     /**

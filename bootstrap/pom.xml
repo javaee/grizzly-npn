@@ -3,7 +3,7 @@
     <parent>
         <artifactId>grizzly-npn</artifactId>
         <groupId>org.glassfish.grizzly</groupId>
-        <version>1.3-SNAPSHOT</version>
+        <version>1.3</version>
     </parent>
     <modelVersion>4.0.0</modelVersion>
 

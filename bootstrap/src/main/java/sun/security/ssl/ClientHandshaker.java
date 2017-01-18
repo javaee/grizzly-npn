@@ -543,15 +543,17 @@ final class ClientHandshaker extends Handshaker {
             handshakeHash.setFinishedAlg(cipherSuite.prfAlg.getPRFHashAlg());
             // BEGIN GRIZZLY NPN
             // check for alpn protocol selection
-            AlpnClientNegotiator negotiator =
-                    NegotiationSupport.getAlpnClientNegotiator(engine);
-            if (negotiator != null) {
-                AlpnExtension serverHelloAlpn = (AlpnExtension)
-                        mesg.extensions.get(
-                                ExtensionType.EXT_APPLICATION_LEVEL_PROTOCOL_NEGOTIATION);
-                if (serverHelloAlpn != null) {
-                    negotiator.protocolSelected(engine,
-                            serverHelloAlpn.protocols[0]);
+            if (engine != null) {
+                AlpnClientNegotiator negotiator =
+                        NegotiationSupport.getAlpnClientNegotiator(engine);
+                if (negotiator != null) {
+                    AlpnExtension serverHelloAlpn = (AlpnExtension)
+                            mesg.extensions.get(
+                                    ExtensionType.EXT_APPLICATION_LEVEL_PROTOCOL_NEGOTIATION);
+                    if (serverHelloAlpn != null) {
+                        negotiator.protocolSelected(engine,
+                                serverHelloAlpn.protocols[0]);
+                    }
                 }
             }
             // END GRIZZLY NPN
@@ -685,7 +687,7 @@ final class ClientHandshaker extends Handshaker {
         if (isInitialHandshake) {
             NextProtocolNegotiationExtension npnExt = (NextProtocolNegotiationExtension)
                     mesg.extensions.get(ExtensionType.EXT_NEXT_PROTOCOL_NEGOTIATION);
-            if (npnExt != null) {
+            if (npnExt != null && engine != null) {
                 ClientSideNegotiator clientSideNegotiator =
                         NegotiationSupport.getClientSideNegotiator(engine);
                 if (clientSideNegotiator != null) {

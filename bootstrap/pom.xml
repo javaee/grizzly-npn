@@ -22,8 +22,6 @@
                             org.glassfish.grizzly.npn,
                             sun.security.ssl
                         </Export-Package>
-                        <Fragment-Host>system.bundle; extension:=framework
-                        </Fragment-Host>
                     </instructions>
                 </configuration>
                 <executions>

@@ -10,7 +10,7 @@
     <groupId>org.glassfish.grizzly</groupId>
     <artifactId>grizzly-npn</artifactId>
     <packaging>pom</packaging>
-    <version>1.6-SNAPSHOT</version>
+    <version>1.6</version>
 
     <url>http://grizzly.java.net</url>
     <issueManagement>

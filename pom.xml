@@ -37,6 +37,12 @@
             <organizationUrl>http://www.oracle.com</organizationUrl>
         </developer>
     </developers>
+    <licenses>
+        <license>
+            <name>CDDL+GPL</name>
+            <url>http://glassfish.java.net/public/CDDL+GPL.html</url>
+        </license>
+    </licenses>
     <scm>
         <connection>scm:git:git://java.net/grizzly~npn</connection>
         <developerConnection>

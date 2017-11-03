@@ -43,11 +43,45 @@ package org.glassfish.grizzly.npn;
 import javax.net.ssl.SSLEngine;
 
 /**
- * TODO Docs
+ * <p>
+ *
+ * Called during the SSL handshake when the current {@code SSLEngine}'s
+ * {@code getUseClientMode} has returned {@code true}.  Implementations must be
+ * thread safe.
+ *
+ * <p>
  */
 public interface AlpnClientNegotiator {
 
+    /**
+     * <p>
+     *
+     * Return the supported protocols.  For HTTP/2 this should be the two literal
+     * strings "h2" and "http/1.1", without the quotes.  This method is called
+     * by the underlying SSL framework.
+     *
+     * <p>
+     *
+     * @param sslEngine the {@code SSLEngine} for this connection.
+     * @return A newly allocated String array of protocols supported.
+     */
     String[] getProtocols(SSLEngine sslEngine);
+
+    /**
+     * <p>
+     *
+     * Inform the implementor which of the protocols returned from {@link #getProtocols(javax.net.ssl.SSLEngine)}
+     * was actually selected.
+     *
+     * <p>
+     *
+     * For HTTP/2, if the argument is "h2", proceed to use the HTTP/2 protocol
+     * for the remainder of this connection.  Otherwise, take the necessary
+     * action to use HTTP/1.1.
+     *
+     * @param sslEngine the {@code SSLEngine} for this connection.
+     * @param selectedProtocol The selected protocol.
+     */
 
     void protocolSelected(SSLEngine sslEngine, String selectedProtocol);
 

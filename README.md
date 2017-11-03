@@ -3,17 +3,6 @@ provide an implementation of ALPN.  The module was written for use in
 Grizzly, but is intended as a general purpose solution to allow JDK8
 based software to use ALPN.
 
----
-
-## How to Avoid IP Taint When Examining this Code
-
-Note that everything in the `api` maven sub-module of this module is
-safe to look it without fear of
-[intellectual property taint](http://thekroliks.typepad.com/whereas/2009/03/inlicensing-technology-3-things-you-need-to-avoid-tainting.html).
-It is all interfaces and one utility POJO.
-
----
-
 # How Grizzly Uses This Module
 
 Grizzly has the concept of an
@@ -27,9 +16,11 @@ responses to be sent.
 Grizzly itself uses this `AddOn` concept to provide HTTP/2 support, in
 the form of
 [`Http2AddOn`](https://github.com/javaee/grizzly/blob/e0e9200479851078d9cf2bad1cf29fa72f525437/modules/http2/src/main/java/org/glassfish/grizzly/http2/Http2AddOn.java)
-This `AddOn` implementation inserts some filters in the chain in the
-proper order to ensure that ALPN concerns are handled first, and then
-the HTTP/2 protocol is handled.  The former is of interest here.
+In addition to registering filters for HTTP/2 processing, this `AddOn`
+implementation registers a callback withthe ALPN extension to insert
+itself into the
+[SSL Handshake](https://www.ibm.com/support/knowledgecenter/en/SSFKSJ_7.1.0/com.ibm.mq.doc/sy10660_.htm)
+process
 
 ## Programmatic Configuration
 
@@ -41,8 +32,7 @@ current connection is secure (that is, it is supposed to be using ALPN).
 * Use the `addHandshakeListener` method of the existing
   [`SSLBaseFilter`](https://github.com/javaee/grizzly/blob/e0e9200479851078d9cf2bad1cf29fa72f525437/modules/grizzly/src/main/java/org/glassfish/grizzly/ssl/SSLBaseFilter.java)
   to cause an ALPN specific SSL handshake listener to be added to the
-  existing list of listeners that are invoked when an
-  [SSL Handshake](https://www.ibm.com/support/knowledgecenter/en/SSFKSJ_7.1.0/com.ibm.mq.doc/sy10660_.htm)
+  existing list of listeners that are invoked when an ssl handshake
   happens.
 
     Grizzly's handshake listener has several methods, but the only one
@@ -73,11 +63,11 @@ current connection is secure (that is, it is supposed to be using ALPN).
 
     By the time `onStart` is invoked, the handshake listener will have
     been initialized with implementations of `AlpnClientNegotiator` and
-    `AlpnServerNegotiator`.  
+    `AlpnServerNegotiator` by the `Http2AddOn`.
 
 ## Deployment Configuration
 
 The above programmatic configuration steps will make it so the simple
 act of including the module built from the `bootstrap` sub-module of
-this repository in the "endorsed" directory of the JVM will enable ALPN
-support in that JVM.
+this repository in the bootclasspath of the JVM will enable ALPN support
+in that JVM.

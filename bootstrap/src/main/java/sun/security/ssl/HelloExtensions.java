@@ -64,8 +64,8 @@ import javax.net.ssl.*;
  *      explicitly support.
  *  . ServerNameExtension: the server_name extension.
  *  . SignatureAlgorithmsExtension: the signature_algorithms extension.
- *  . SupportedEllipticCurvesExtension: the ECC supported curves extension.
- *  . SupportedEllipticPointFormatsExtension: the ECC supported point formats
+ *  . EllipticCurvesExtension: the ECC supported curves extension.
+ *  . EllipticPointFormatsExtension: the ECC supported point formats
  *      (compressed/uncompressed) extension.
  *
  * @since   1.6
@@ -94,18 +94,19 @@ final class HelloExtensions {
             } else if (extType == ExtensionType.EXT_SIGNATURE_ALGORITHMS) {
                 extension = new SignatureAlgorithmsExtension(s, extlen);
             } else if (extType == ExtensionType.EXT_ELLIPTIC_CURVES) {
-                extension = new SupportedEllipticCurvesExtension(s, extlen);
+                extension = new EllipticCurvesExtension(s, extlen);
             } else if (extType == ExtensionType.EXT_EC_POINT_FORMATS) {
-                extension =
-                        new SupportedEllipticPointFormatsExtension(s, extlen);
+                extension = new EllipticPointFormatsExtension(s, extlen);
             } else if (extType == ExtensionType.EXT_RENEGOTIATION_INFO) {
                 extension = new RenegotiationInfoExtension(s, extlen);
             // BEGIN GRIZZLY NPN
             } else if (extType == ExtensionType.EXT_NEXT_PROTOCOL_NEGOTIATION) {
                 extension = NextProtocolNegotiationExtension.builder().handshakeIn(s, extlen).build();
             } else if (extType == ExtensionType.EXT_APPLICATION_LEVEL_PROTOCOL_NEGOTIATION) {
-                                extension = AlpnExtension.builder().handshakeIn(s, extlen).build();
+                extension = AlpnExtension.builder().handshakeIn(s, extlen).build();
             // END GRIZZLY NPN
+            } else if (extType == ExtensionType.EXT_EXTENDED_MASTER_SECRET) {
+                extension = new ExtendedMasterSecretExtension(s, extlen);
             } else {
                 extension = new UnknownExtension(s, extlen, extType);
             }

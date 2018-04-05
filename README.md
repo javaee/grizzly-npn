@@ -1,3 +1,6 @@
+#### :warning:This project is now part of the EE4J initiative. This repository has been archived as all activities are now happening in the [corresponding Eclipse repository](https://github.com/eclipse-ee4j/grizzly-npn). See [here](https://www.eclipse.org/ee4j/status.php) for the overall EE4J transition status.
+ 
+---
 This module interfaces with the TLS implementation of Oracle JDK8 to
 provide an implementation of ALPN.  The module was written for use in
 Grizzly, but is intended as a general purpose solution to allow JDK8

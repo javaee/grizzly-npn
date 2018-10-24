@@ -107,6 +107,8 @@ public abstract class HandshakeMessage {
 
     static final byte   ht_finished = 20;
 
+    static final byte   ht_not_applicable         = -1;     // N/A
+
     // BEGIN GRIZZLY NPN
     // Defined by Draft03, section 3:
     //  A new handshake message type ("next_protocol(67)") is defined.

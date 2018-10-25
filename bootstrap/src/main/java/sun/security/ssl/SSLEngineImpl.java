@@ -227,11 +227,6 @@ final public class SSLEngineImpl extends SSLEngine {
     static final byte           clauth_required = 2;
 
     /*
-     * Flag indicating that the engine has received a ChangeCipherSpec message.
-     */
-    private boolean             receivedCCS;
-
-    /*
      * Flag indicating if the next record we receive MUST be a Finished
      * message. Temporarily set during the handshake to ensure that
      * a change cipher spec message is followed by a finished message.
@@ -392,7 +387,6 @@ final public class SSLEngineImpl extends SSLEngine {
          */
         roleIsServer = true;
         connectionState = cs_START;
-        receivedCCS = false;
 
         // default server name indication
         serverNames =
@@ -602,14 +596,6 @@ final public class SSLEngineImpl extends SSLEngine {
      * Synchronized on "this" from readRecord.
      */
     private void changeReadCiphers() throws SSLException {
-        if (connectionState != cs_HANDSHAKE
-                && connectionState != cs_RENEGOTIATE) {
-            throw new SSLProtocolException(
-                    "State error, change cipher specs");
-        }
-
-        // ... create decompressor
-
         CipherBox oldCipher = readCipher;
 
         try {
@@ -795,6 +781,10 @@ final public class SSLEngineImpl extends SSLEngine {
             synchronized (unwrapLock) {
                 return readNetRecord(ea);
             }
+        } catch (SSLProtocolException spe) {
+            // may be an unexpected handshake message
+            fatal(Alerts.alert_unexpected_message, spe.getMessage(), spe);
+            return null;  // make compiler happy
         } catch (Exception e) {
             /*
              * Don't reset position so it looks like we didn't
@@ -1048,7 +1038,6 @@ final public class SSLEngineImpl extends SSLEngine {
 
                         if (handshaker.invalidated) {
                             handshaker = null;
-                            receivedCCS = false;
                             // if state is cs_RENEGOTIATE, revert it to cs_DATA
                             if (connectionState == cs_RENEGOTIATE) {
                                 connectionState = cs_DATA;
@@ -1067,8 +1056,6 @@ final public class SSLEngineImpl extends SSLEngine {
                             }
                             handshaker = null;
                             connectionState = cs_DATA;
-                            receivedCCS = false;
-
                             // No handshakeListeners here.  That's a
                             // SSLSocket thing.
                         } else if (handshaker.taskOutstanding()) {
@@ -1106,25 +1093,17 @@ final public class SSLEngineImpl extends SSLEngine {
 
                     case Record.ct_change_cipher_spec:
                         if ((connectionState != cs_HANDSHAKE
-                                && connectionState != cs_RENEGOTIATE)
-                                || !handshaker.sessionKeysCalculated()
-                                || receivedCCS) {
+                                && connectionState != cs_RENEGOTIATE)) {
                             // For the CCS message arriving in the wrong state
                             fatal(Alerts.alert_unexpected_message,
                                     "illegal change cipher spec msg, conn state = "
-                                            + connectionState + ", handshake state = "
-                                            + handshaker.state);
+                                            + connectionState);
                         } else if (inputRecord.available() != 1
                                 || inputRecord.read() != 1) {
                             // For structural/content issues with the CCS
                             fatal(Alerts.alert_unexpected_message,
                                     "Malformed change cipher spec msg");
                         }
-
-                        // Once we've received CCS, update the flag.
-                        // If the remote endpoint sends it again in this handshake
-                        // we won't process it.
-                        receivedCCS = true;
 
                         //
                         // The first message after a change_cipher_spec
@@ -1133,6 +1112,7 @@ final public class SSLEngineImpl extends SSLEngine {
                         // to be checked by a minor tweak to the state
                         // machine.
                         //
+                        handshaker.receiveChangeCipherSpec();
                         changeReadCiphers();
                         // next message MUST be a finished message
                         expectingFinished = true;
@@ -1206,6 +1186,10 @@ final public class SSLEngineImpl extends SSLEngine {
             synchronized (wrapLock) {
                 return writeAppRecord(ea);
             }
+        } catch (SSLProtocolException spe) {
+            // may be an unexpected handshake message
+            fatal(Alerts.alert_unexpected_message, spe.getMessage(), spe);
+            return null;  // make compiler happy
         } catch (Exception e) {
             ea.resetPos();
 
@@ -1967,13 +1951,21 @@ final public class SSLEngineImpl extends SSLEngine {
 
             case cs_START:
             /*
-             * If we need to change the engine mode and the enabled
-             * protocols haven't specifically been set by the user,
-             * change them to the corresponding default ones.
+             * If we need to change the socket mode and the enabled
+             * protocols and cipher suites haven't specifically been
+             * set by the user, change them to the corresponding
+             * default ones.
              */
-                if (roleIsServer != (!flag) &&
-                        sslContext.isDefaultProtocolList(enabledProtocols)) {
-                    enabledProtocols = sslContext.getDefaultProtocolList(!flag);
+                if (roleIsServer != (!flag)) {
+                    if (sslContext.isDefaultProtocolList(enabledProtocols)) {
+                        enabledProtocols =
+                                sslContext.getDefaultProtocolList(!flag);
+                    }
+
+                    if (sslContext.isDefaultCipherSuiteList(enabledCipherSuites)) {
+                        enabledCipherSuites =
+                                sslContext.getDefaultCipherSuiteList(!flag);
+                    }
                 }
 
                 roleIsServer = !flag;
@@ -2159,14 +2151,6 @@ final public class SSLEngineImpl extends SSLEngine {
                 handshaker.setSNIServerNames(serverNames);
             }
         }
-    }
-
-    /*
-     * Returns a boolean indicating whether the ChangeCipherSpec message
-     * has been received for this handshake.
-     */
-    boolean receivedChangeCipherSpec() {
-        return receivedCCS;
     }
 
     /**
